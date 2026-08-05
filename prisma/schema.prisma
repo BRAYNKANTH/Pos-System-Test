@@ -1,0 +1,266 @@
+// Cloud POS System — full schema, all 5 modules.
+// Source of truth: docs/POS_Detailed_Build_Plan.md
+//
+// Ownership:
+//   - `User` and `AuditLog` are core/shared — flag before editing (see root OWNER conventions in README).
+//   - Every other model belongs to the module noted above it. Editing your own module's
+//     models is always fine; adding a field another module needs should be flagged in PR review.
+//
+// No live database is wired up yet. `npx prisma generate` works offline (schema-only).
+// `npx prisma migrate dev` requires DATABASE_URL / DIRECT_URL to point at a real Postgres
+// (Supabase) instance — see .env.example.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  CASHIER
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Core / shared
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(CASHIER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  transactions            Transaction[]       @relation("TransactionCashier")
+  requestedBillChanges    BillChangeRequest[]  @relation("BillChangeRequestedBy")
+  approvedBillChanges     BillChangeRequest[]  @relation("BillChangeApprovedBy")
+  requestedStockAdjustments StockAdjustment[]  @relation("StockAdjustmentRequestedBy")
+  approvedStockAdjustments StockAdjustment[]   @relation("StockAdjustmentApprovedBy")
+  auditActorEntries        AuditLog[]          @relation("AuditActor")
+  auditApproverEntries      AuditLog[]         @relation("AuditApprover")
+
+  @@map("users")
+}
+
+/// Immutable change trail for bill edits (Module 2) and inventory adjustments
+/// (Module 3), also queried by Module 5's audit report. Shape mirrors
+/// docs/api-contracts.md → AuditLogEntry. Never update or delete rows — append only.
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String // e.g. "bill", "bill_change_request", "stock_adjustment"
+  entityId   String
+  oldValue   Json?
+  newValue   Json?
+  actorId    String
+  approverId String?
+  reason     String?
+  timestamp  DateTime @default(now())
+
+  actor    User  @relation("AuditActor", fields: [actorId], references: [id])
+  approver User? @relation("AuditApprover", fields: [approverId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("audit_log")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Module 1 — Checkout / Sales
+// ─────────────────────────────────────────────────────────────────────────
+
+model Transaction {
+  id             String   @id @default(cuid())
+  registerId     String
+  cashierId      String
+  subtotal       Decimal  @db.Decimal(12, 2)
+  tax            Decimal  @db.Decimal(12, 2)
+  total          Decimal  @db.Decimal(12, 2)
+  paymentMethod  String
+  status         String   @default("completed")
+  idempotencyKey String   @unique
+  createdAt      DateTime @default(now())
+
+  cashier User              @relation("TransactionCashier", fields: [cashierId], references: [id])
+  items   TransactionItem[]
+  bill    Bill?
+
+  @@map("transactions")
+}
+
+model TransactionItem {
+  id            String  @id @default(cuid())
+  transactionId String
+  sku           String
+  qty           Int
+  unitPrice     Decimal @db.Decimal(12, 2)
+  discount      Decimal @default(0) @db.Decimal(12, 2)
+  taxAmount     Decimal @default(0) @db.Decimal(12, 2)
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@map("transaction_items")
+}
+
+model TaxRule {
+  id       String  @id @default(cuid())
+  region   String
+  category String
+  rate     Decimal @db.Decimal(6, 4)
+
+  @@map("tax_rules")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Module 2 — Bill Change Workflow
+// ─────────────────────────────────────────────────────────────────────────
+
+model Bill {
+  id            String   @id @default(cuid())
+  transactionId String   @unique
+  status        String   @default("locked") // locked | editable
+  lockedAt      DateTime @default(now())
+
+  transaction    Transaction         @relation(fields: [transactionId], references: [id])
+  changeRequests BillChangeRequest[]
+
+  @@map("bills")
+}
+
+model BillChangeRequest {
+  id              String    @id @default(cuid())
+  billId          String
+  requestedBy     String
+  type            String // correction | refund | void
+  reason          String
+  proposedChanges Json
+  status          String    @default("pending") // pending | approved | rejected
+  approvedBy      String?
+  approvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  bill      Bill  @relation(fields: [billId], references: [id])
+  requester User  @relation("BillChangeRequestedBy", fields: [requestedBy], references: [id])
+  approver  User? @relation("BillChangeApprovedBy", fields: [approvedBy], references: [id])
+
+  @@map("bill_change_requests")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Module 3 — Inventory & Approval
+// ─────────────────────────────────────────────────────────────────────────
+
+model InventoryItem {
+  id                String  @id @default(cuid())
+  sku               String  @unique
+  name              String
+  qtyOnHand         Int     @default(0)
+  locationId        String?
+  lowStockThreshold Int     @default(0)
+
+  adjustments StockAdjustment[]
+
+  @@map("inventory_items")
+}
+
+model StockAdjustment {
+  id               String    @id @default(cuid())
+  sku              String
+  qtyChange        Int
+  type             String // automated | manual
+  reasonCategory   String?
+  status           String    @default("applied") // applied | pending
+  thresholdFlagged Boolean   @default(false)
+  requestedBy      String?
+  approvedBy       String?
+  createdAt        DateTime  @default(now())
+
+  item      InventoryItem @relation(fields: [sku], references: [sku])
+  requester User?         @relation("StockAdjustmentRequestedBy", fields: [requestedBy], references: [id])
+  approver  User?         @relation("StockAdjustmentApprovedBy", fields: [approvedBy], references: [id])
+
+  @@map("stock_adjustments")
+}
+
+model ApprovalThreshold {
+  id            String  @id @default(cuid())
+  scope         String // category or sku this threshold applies to
+  thresholdType String // percent | absolute
+  value         Decimal @db.Decimal(12, 2)
+
+  @@map("approval_thresholds")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Module 4 — Sync Engine & Integration
+// ─────────────────────────────────────────────────────────────────────────
+
+model SyncQueueJob {
+  id            String    @id @default(cuid())
+  entityType    String // transaction | bill | stock_adjustment | customer
+  entityId      String
+  payload       Json
+  status        String    @default("pending") // pending | synced | failed
+  retryCount    Int       @default(0)
+  lastAttemptAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([status])
+  @@map("sync_queue")
+}
+
+model ZohoConnection {
+  id             String   @id @default(cuid())
+  branchId       String   @unique
+  organizationId String
+  dataCenter     String
+  accessToken    String
+  refreshToken   String
+  expiresAt      DateTime
+
+  @@map("zoho_connections")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Module 5 — Customers, Reports & Admin Settings
+// ─────────────────────────────────────────────────────────────────────────
+
+model Customer {
+  id              String   @id @default(cuid())
+  name            String
+  email           String?  @unique
+  phone           String?
+  loyaltyMetadata Json?
+  createdAt       DateTime @default(now())
+
+  orders Order[]
+
+  @@map("customers")
+}
+
+model Order {
+  id         String   @id @default(cuid())
+  customerId String
+  status     String   @default("pending") // pending | preparing | fulfilled | refunded
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@map("orders")
+}
+
+model RolePermission {
+  id             String   @id @default(cuid())
+  role           Role
+  permissionKey  String
+  thresholdValue Decimal? @db.Decimal(12, 2)
+
+  @@unique([role, permissionKey])
+  @@map("roles_permissions")
+}
