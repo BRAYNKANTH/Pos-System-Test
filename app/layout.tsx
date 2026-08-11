@@ -3,6 +3,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { Header } from "@/components/Header";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { PageTransition } from "./_components/PageTransition";
 
 export const metadata: Metadata = {
   title: "Cloud POS System",
@@ -20,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <OfflineBanner />
           <Header />
-          {children}
+          <PageTransition>{children}</PageTransition>
         </Providers>
       </body>
     </html>

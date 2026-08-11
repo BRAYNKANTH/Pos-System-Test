@@ -57,11 +57,11 @@ export default async function DailyReportPage({
         </div>
         <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
           <p className="text-xs text-zinc-500">Gross sales</p>
-          <p className="text-lg font-semibold">${grossSales.toFixed(2)}</p>
+          <p className="text-lg font-semibold">Rs {grossSales.toFixed(2)}</p>
         </div>
         <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
           <p className="text-xs text-zinc-500">Tax collected</p>
-          <p className="text-lg font-semibold">${totalTax.toFixed(2)}</p>
+          <p className="text-lg font-semibold">Rs {totalTax.toFixed(2)}</p>
         </div>
       </div>
 
@@ -76,7 +76,7 @@ export default async function DailyReportPage({
               <span>
                 {method} ({agg.count})
               </span>
-              <span>${agg.total.toFixed(2)}</span>
+              <span>Rs {agg.total.toFixed(2)}</span>
             </div>
           ))}
         </div>

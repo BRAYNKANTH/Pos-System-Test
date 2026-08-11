@@ -29,7 +29,7 @@ export default async function InventoryItemPage({ params }: { params: Promise<{ 
           </Link>
         </div>
         <p className="text-sm text-zinc-500">
-          {item.sku} · ${Number(item.unitPrice).toFixed(2)} · {item.qtyOnHand} on hand
+          {item.sku} · Rs {Number(item.unitPrice).toFixed(2)} · {item.qtyOnHand} on hand
           {item.qtyOnHand <= item.lowStockThreshold && (
             <>
               {" "}

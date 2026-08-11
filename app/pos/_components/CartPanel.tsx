@@ -379,7 +379,7 @@ export function CartPanel({
               <div>
                 <p className="text-xs text-zinc-450 dark:text-zinc-500 font-bold uppercase">Discount (-)</p>
                 <p className="font-mono mt-0.5 text-zinc-700 dark:text-zinc-300">
-                  {discount ? `${discount.type === "percent" ? "" : "$"}${discount.value}${discount.type === "percent" ? "%" : ""}` : "0.00"}
+                  {discount ? `${discount.type === "amount" ? "Rs " : ""}${discount.value}${discount.type === "percent" ? "%" : ""}` : "0.00"}
                 </p>
               </div>
             </div>
@@ -486,7 +486,7 @@ export function CartPanel({
                   : "border-zinc-200"
               }`}
             >
-              Fixed Amount ($)
+              Fixed Amount (Rs)
             </button>
           </div>
           <div className="flex flex-col gap-1">
@@ -530,7 +530,7 @@ export function CartPanel({
       <Modal open={isShippingModalOpen} onClose={() => setIsShippingModalOpen(false)} title="Edit Shipping Cost">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-500">Shipping Charge ($):</label>
+            <label className="text-xs font-semibold text-zinc-500">Shipping Charge (Rs):</label>
             <input
               type="number"
               min={0}

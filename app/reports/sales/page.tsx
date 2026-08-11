@@ -45,7 +45,7 @@ export default async function SalesTrendsPage() {
               <span>
                 {t.name} <span className="text-xs text-zinc-400">({t.qty} sold)</span>
               </span>
-              <span>${t.revenue.toFixed(2)}</span>
+              <span>Rs {t.revenue.toFixed(2)}</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
               <div
