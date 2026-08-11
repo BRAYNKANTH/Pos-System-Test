@@ -107,3 +107,31 @@ export function applyDiscount(
     return { ...item, discount: round2(Math.min(combined, lineTotal)) };
   });
 }
+
+export type LineWithOverrides = {
+  sku: string;
+  qty: number;
+  unitPrice: number;
+  priceOverride?: { newPrice: number; reason: string } | null;
+  lineDiscount?: { type: "percent" | "amount"; value: number } | null;
+};
+
+/** Applies each line's own price override (if any) and line-scoped
+ * discount (if any), producing CartLineInput[] ready for the cart-level
+ * applyDiscount + calculateCart pipeline above. Shared by the POS page
+ * and CartPanel's local-preview fallback so the displayed total matches
+ * what checkout will actually charge — those two previously computed
+ * totals independently and neither knew about per-line overrides/
+ * discounts at all. */
+export function applyLineOverridesAndDiscounts(lines: LineWithOverrides[]): CartLineInput[] {
+  let result: CartLineInput[] = lines.map((l) => ({
+    sku: l.sku,
+    qty: l.qty,
+    unitPrice: l.priceOverride ? l.priceOverride.newPrice : l.unitPrice,
+  }));
+  for (const l of lines) {
+    if (!l.lineDiscount) continue;
+    result = applyDiscount(result, { scope: "line", sku: l.sku, type: l.lineDiscount.type, value: l.lineDiscount.value });
+  }
+  return result;
+}

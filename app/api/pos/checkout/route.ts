@@ -2,13 +2,17 @@ import type { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, TRANSACTION_OPTIONS } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
+import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import { calculateCart, applyDiscount, type CartLineInput, type DiscountInput } from "@/lib/pos/pricing";
 import { resolveDiscountsForLines } from "@/lib/pos/discounts";
 import { deductStockOnSale, syncLocationStockAfterSale, InsufficientStockError } from "@/lib/inventory/stock";
 import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
+import { writeAuditLog } from "@/lib/audit/writeAuditLog";
 
-type RequestLine = { sku: string; qty: number };
+type LineDiscount = { type: "percent" | "amount"; value: number };
+type PriceOverride = { newPrice: number; reason: string };
+type RequestLine = { sku: string; qty: number; priceOverride?: PriceOverride; lineDiscount?: LineDiscount };
 type Tender = { method: string; amount: number };
 
 // processPayment — POST /api/pos/checkout — finalize sale. Supports
@@ -23,7 +27,20 @@ export async function POST(req: NextRequest) {
   if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
 
   const body = await req.json().catch(() => null);
-  const requestLines: RequestLine[] = Array.isArray(body?.items) ? body.items : [];
+  const requestLines: RequestLine[] = Array.isArray(body?.items)
+    ? body.items.map((l: RequestLine) => ({
+        sku: l.sku,
+        qty: l.qty,
+        priceOverride:
+          l.priceOverride && Number.isFinite(l.priceOverride.newPrice) && l.priceOverride.newPrice >= 0 && l.priceOverride.reason
+            ? { newPrice: l.priceOverride.newPrice, reason: String(l.priceOverride.reason).trim() }
+            : undefined,
+        lineDiscount:
+          l.lineDiscount && (l.lineDiscount.type === "percent" || l.lineDiscount.type === "amount") && Number.isFinite(l.lineDiscount.value) && l.lineDiscount.value > 0
+            ? l.lineDiscount
+            : undefined,
+      }))
+    : [];
   const idempotencyKey = typeof body?.idempotencyKey === "string" ? body.idempotencyKey : "";
   const registerId = typeof body?.registerId === "string" ? body.registerId : "register-1";
   const discount = body?.discount as DiscountInput | undefined;
@@ -41,6 +58,11 @@ export async function POST(req: NextRequest) {
       "items[], tenders[] (or paymentMethod), and idempotencyKey are required",
       { status: 400 },
     );
+  }
+
+  const hasPriceOverride = requestLines.some((l) => l.priceOverride);
+  if (hasPriceOverride && !(await checkPermission(user.role, PERMISSIONS.PRICE_OVERRIDE))) {
+    return apiError("FORBIDDEN", "Not allowed to override prices at checkout", { status: 403 });
   }
   if (tenders.some((t) => !t.method || !Number.isFinite(t.amount) || t.amount <= 0)) {
     // Infinity from the paymentMethod fallback above is intentionally not
@@ -100,12 +122,30 @@ export async function POST(req: NextRequest) {
     }),
   );
 
+  // Price overrides (damaged item, manager discretion — gated by
+  // PRICE_OVERRIDE above) replace the catalog price for that line only;
+  // the catalog price is kept below for the audit trail and
+  // TransactionItem.originalUnitPrice.
+  const overridesBySku = new Map(
+    requestLines.filter((l) => l.priceOverride).map((l) => [l.sku, l.priceOverride!]),
+  );
+
   let lines: CartLineInput[] = requestLines.map((l) => ({
     sku: l.sku,
     qty: l.qty,
-    unitPrice: Number(bySku.get(l.sku)!.unitPrice),
+    unitPrice: overridesBySku.has(l.sku) ? overridesBySku.get(l.sku)!.newPrice : Number(bySku.get(l.sku)!.unitPrice),
     discount: autoDiscounts.get(l.sku)?.amountForLine ?? 0,
   }));
+
+  // Per-line manual discounts (separate control from the cart-level
+  // `discount` below) — applied one sku at a time; applyDiscount's line
+  // scope only ever touches the matching sku, and stacks additively with
+  // whatever's already on that line (see applyDiscount's own docs).
+  for (const l of requestLines) {
+    if (!l.lineDiscount) continue;
+    lines = applyDiscount(lines, { scope: "line", sku: l.sku, type: l.lineDiscount.type, value: l.lineDiscount.value });
+  }
+
   if (discount) lines = applyDiscount(lines, discount);
 
   const [taxRule, openSession, customer] = await Promise.all([taxRulePromise, openSessionPromise, customerPromise]);
@@ -161,13 +201,18 @@ export async function POST(req: NextRequest) {
           // separate inserts just for these two relations.
           items: {
             createMany: {
-              data: calculation.lines.map((line) => ({
-                sku: line.sku,
-                qty: line.qty,
-                unitPrice: line.unitPrice,
-                discount: line.discount,
-                taxAmount: line.taxAmount,
-              })),
+              data: calculation.lines.map((line) => {
+                const override = overridesBySku.get(line.sku);
+                return {
+                  sku: line.sku,
+                  qty: line.qty,
+                  unitPrice: line.unitPrice,
+                  discount: line.discount,
+                  taxAmount: line.taxAmount,
+                  originalUnitPrice: override ? Number(bySku.get(line.sku)!.unitPrice) : undefined,
+                  priceOverrideReason: override?.reason,
+                };
+              }),
             },
           },
           tenders: {
@@ -190,6 +235,21 @@ export async function POST(req: NextRequest) {
     // transaction above.
     for (const line of calculation.lines) {
       syncLocationStockAfterSale(line.sku, line.qty);
+    }
+
+    // Price overrides are audit-logged against the transaction (not the
+    // individual TransactionItem — createMany above doesn't return the
+    // inserted rows' ids) so there's always a record of who charged what
+    // and why whenever a line didn't sell at catalog price.
+    for (const [sku, override] of overridesBySku) {
+      writeAuditLog({
+        entityType: "transaction_price_override",
+        entityId: result.transaction.id,
+        oldValue: { sku, catalogPrice: Number(bySku.get(sku)!.unitPrice) },
+        newValue: { sku, overridePrice: override.newPrice },
+        actorId: user.id,
+        reason: override.reason,
+      }).catch((err) => console.error("writeAuditLog failed for price override", result.transaction.id, err));
     }
 
     // Fire-and-forget, same as the LocationStock sync above — this used

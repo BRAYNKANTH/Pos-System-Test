@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useCartStore } from "@/lib/pos/cart-store";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { calculateCart, applyDiscount, type CartCalculation } from "@/lib/pos/pricing";
+import { calculateCart, applyDiscount, applyLineOverridesAndDiscounts, type CartCalculation } from "@/lib/pos/pricing";
 import {
   User,
   Plus,
@@ -15,7 +15,9 @@ import {
   TrendingUp,
   Truck,
   Edit,
-  UserPlus
+  UserPlus,
+  Tag,
+  ShieldAlert,
 } from "lucide-react";
 
 type Customer = {
@@ -50,6 +52,8 @@ export function CartPanel({
     addItem,
     removeItem,
     setQty,
+    setLinePriceOverride,
+    setLineDiscount,
     setDiscount,
     setShipping,
     setCustomer,
@@ -64,6 +68,15 @@ export function CartPanel({
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
   const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
   const [isShippingModalOpen, setIsShippingModalOpen] = useState(false);
+
+  // Per-line edit (price override + line discount) — one modal shared by
+  // every row, keyed by which sku is currently being edited.
+  const [editingLineSku, setEditingLineSku] = useState<string | null>(null);
+  const [canOverridePrice, setCanOverridePrice] = useState(false);
+  const [lineOverridePrice, setLineOverridePrice] = useState("");
+  const [lineOverrideReason, setLineOverrideReason] = useState("");
+  const [lineDiscountType, setLineDiscountType] = useState<"percent" | "amount">("percent");
+  const [lineDiscountValue, setLineDiscountValue] = useState("");
 
   // Modal input values
   const [newCustomerName, setNewCustomerName] = useState("");
@@ -80,6 +93,17 @@ export function CartPanel({
   const [shippingVal, setShippingVal] = useState(shipping || 0);
 
   const [localProducts, setLocalProducts] = useState<Product[]>([]);
+
+  // Whether this cashier is allowed to override a line's price — checked
+  // once on mount; the control below is hidden entirely if not (checkout
+  // also re-checks server-side, this is just UI, not the real gate).
+  useEffect(() => {
+    fetch("/api/pos/permissions")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) setCanOverridePrice(Boolean(res.data.priceOverride));
+      });
+  }, []);
 
   // Fetch Customers and fallback products if not supplied by parent
   useEffect(() => {
@@ -118,11 +142,7 @@ export function CartPanel({
     if (lines.length === 0) {
       return { lines: [], subtotal: 0, totalDiscount: 0, tax: 0, total: 0 };
     }
-    let cartLines = lines.map((l) => ({
-      sku: l.sku,
-      qty: l.qty,
-      unitPrice: l.unitPrice,
-    }));
+    let cartLines = applyLineOverridesAndDiscounts(lines);
     if (discount) {
       cartLines = applyDiscount(cartLines, {
         scope: "cart",
@@ -163,6 +183,35 @@ export function CartPanel({
     } catch (err) {
       console.error(err);
     }
+  }
+
+  // Open the per-line edit modal (price override + line discount),
+  // pre-filled with that line's current values if it already has any.
+  function openLineEdit(sku: string) {
+    const line = lines.find((l) => l.sku === sku);
+    setLineOverridePrice(line?.priceOverride ? String(line.priceOverride.newPrice) : "");
+    setLineOverrideReason(line?.priceOverride?.reason ?? "");
+    setLineDiscountType(line?.lineDiscount?.type ?? "percent");
+    setLineDiscountValue(line?.lineDiscount ? String(line.lineDiscount.value) : "");
+    setEditingLineSku(sku);
+  }
+
+  function handleSaveLineEdit() {
+    if (!editingLineSku) return;
+
+    if (canOverridePrice && lineOverridePrice && lineOverrideReason.trim()) {
+      setLinePriceOverride(editingLineSku, { newPrice: Number(lineOverridePrice), reason: lineOverrideReason.trim() });
+    } else {
+      setLinePriceOverride(editingLineSku, null);
+    }
+
+    if (lineDiscountValue && Number(lineDiscountValue) > 0) {
+      setLineDiscount(editingLineSku, { type: lineDiscountType, value: Number(lineDiscountValue) });
+    } else {
+      setLineDiscount(editingLineSku, null);
+    }
+
+    setEditingLineSku(null);
   }
 
   // Update Discount
@@ -290,7 +339,7 @@ export function CartPanel({
               <th className="px-4 py-2">Product</th>
               <th className="px-4 py-2 text-center">Quantity</th>
               <th className="px-4 py-2 text-right">Subtotal</th>
-              <th className="px-4 py-2 text-center w-10"></th>
+              <th className="px-4 py-2 text-center w-16"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -311,7 +360,29 @@ export function CartPanel({
                   <tr key={line.sku} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
                     <td className="px-4 py-1.5">
                       <p className="font-semibold text-zinc-800 dark:text-zinc-100">{line.name}</p>
-                      <p className="text-sm text-zinc-450 dark:text-zinc-500 font-mono">Rs {line.unitPrice.toFixed(2)}</p>
+                      {line.priceOverride ? (
+                        <p className="text-sm font-mono">
+                          <span className="text-zinc-400 line-through mr-1.5">Rs {line.unitPrice.toFixed(2)}</span>
+                          <span className="text-amber-650 font-bold">Rs {line.priceOverride.newPrice.toFixed(2)}</span>
+                        </p>
+                      ) : (
+                        <p className="text-sm text-zinc-450 dark:text-zinc-500 font-mono">Rs {line.unitPrice.toFixed(2)}</p>
+                      )}
+                      {(line.priceOverride || line.lineDiscount) && (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {line.priceOverride && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-bold dark:bg-amber-950/30 dark:text-amber-400" title={line.priceOverride.reason}>
+                              <ShieldAlert className="h-2.5 w-2.5" /> Price overridden
+                            </span>
+                          )}
+                          {line.lineDiscount && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-650 text-[11px] font-bold dark:bg-indigo-950/30 dark:text-indigo-400">
+                              <Tag className="h-2.5 w-2.5" />
+                              {line.lineDiscount.type === "amount" ? `Rs ${line.lineDiscount.value}` : `${line.lineDiscount.value}%`} off
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-1.5">
                       <div className="flex items-center justify-center gap-1.5">
@@ -338,13 +409,22 @@ export function CartPanel({
                     <td className="px-4 py-1.5 text-right font-mono font-medium">
                       Rs {sub.toFixed(2)}
                     </td>
-                    <td className="px-4 py-1.5 text-center">
-                      <button
-                        onClick={() => removeItem(line.sku)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <X className="h-4.5 w-4.5" />
-                      </button>
+                    <td className="px-4 py-1.5">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => openLineEdit(line.sku)}
+                          className="text-zinc-400 hover:text-indigo-600"
+                          title="Price override / line discount"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => removeItem(line.sku)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <X className="h-4.5 w-4.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -541,6 +621,84 @@ export function CartPanel({
           <div className="flex gap-2">
             <Button onClick={handleSaveShipping} className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">Apply Shipping</Button>
             <Button variant="outline" onClick={() => setIsShippingModalOpen(false)}>Cancel</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Line Item Modal — price override + line discount, the same
+          point in the flow per design (both only make sense at checkout,
+          not as separate admin screens). */}
+      <Modal
+        open={editingLineSku !== null}
+        onClose={() => setEditingLineSku(null)}
+        title={`Edit ${lines.find((l) => l.sku === editingLineSku)?.name ?? "Item"}`}
+      >
+        <div className="flex flex-col gap-5">
+          {canOverridePrice ? (
+            <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-900 dark:bg-amber-950/10">
+              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                <ShieldAlert className="h-3.5 w-3.5" /> Price Override
+              </p>
+              <label className="text-xs font-semibold text-zinc-500">New unit price (Rs) — leave blank to use catalog price:</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={lineOverridePrice}
+                onChange={(e) => setLineOverridePrice(e.target.value)}
+                placeholder="e.g. damaged item, reduced price"
+                className="h-9 w-full rounded border border-zinc-300 bg-white px-3 text-sm font-mono outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              />
+              <label className="text-xs font-semibold text-zinc-500">Reason (required, audit-logged):</label>
+              <input
+                type="text"
+                value={lineOverrideReason}
+                onChange={(e) => setLineOverrideReason(e.target.value)}
+                placeholder="e.g. Scratched packaging, manager approved"
+                className="h-9 w-full rounded border border-zinc-300 bg-white px-3 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-400">
+              Price override requires manager/admin permission — not available on this account.
+            </p>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-bold text-indigo-650 flex items-center gap-1.5">
+              <Tag className="h-3.5 w-3.5" /> Line Discount
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setLineDiscountType("percent")}
+                className={`flex-1 h-9 rounded border text-sm font-semibold ${
+                  lineDiscountType === "percent" ? "border-indigo-600 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20" : "border-zinc-200"
+                }`}
+              >
+                Percentage (%)
+              </button>
+              <button
+                onClick={() => setLineDiscountType("amount")}
+                className={`flex-1 h-9 rounded border text-sm font-semibold ${
+                  lineDiscountType === "amount" ? "border-indigo-600 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20" : "border-zinc-200"
+                }`}
+              >
+                Fixed Amount (Rs)
+              </button>
+            </div>
+            <input
+              type="number"
+              min={0}
+              value={lineDiscountValue}
+              onChange={(e) => setLineDiscountValue(e.target.value)}
+              placeholder="0 — leave blank for no line discount"
+              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
+            />
+          </div>
+
+          <div className="flex gap-2 border-t pt-3 dark:border-zinc-800">
+            <Button onClick={handleSaveLineEdit} className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">Save</Button>
+            <Button variant="outline" onClick={() => setEditingLineSku(null)}>Cancel</Button>
           </div>
         </div>
       </Modal>

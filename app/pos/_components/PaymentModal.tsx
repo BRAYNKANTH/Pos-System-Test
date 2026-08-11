@@ -89,7 +89,12 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
     setSubmitting(true);
 
     const checkoutPayload = {
-      items: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
+      items: lines.map((l) => ({
+        sku: l.sku,
+        qty: l.qty,
+        priceOverride: l.priceOverride ?? undefined,
+        lineDiscount: l.lineDiscount ?? undefined,
+      })),
       discount: discount ? { scope: "cart" as const, type: discount.type, value: discount.value } : undefined,
       shipping,
       customerId,

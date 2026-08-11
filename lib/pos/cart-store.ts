@@ -2,11 +2,20 @@
 
 import { create } from "zustand";
 
+export type LinePriceOverride = { newPrice: number; reason: string };
+export type LineDiscount = { type: "percent" | "amount"; value: number };
+
 export type CartLine = {
   sku: string;
   name: string;
   unitPrice: number;
   qty: number;
+  /** Manager-discretion price override for this line only (damaged item,
+   * price match, etc) — checkout audit-logs it, gated by PRICE_OVERRIDE. */
+  priceOverride?: LinePriceOverride | null;
+  /** Per-line discount, distinct from the cart-wide `discount` below —
+   * stacks additively with any auto-applied scheduled Discount. */
+  lineDiscount?: LineDiscount | null;
 };
 
 export type CartDiscount = { type: "percent" | "amount"; value: number } | null;
@@ -21,6 +30,8 @@ type CartState = {
   addItem: (item: { sku: string; name: string; unitPrice: number }) => void;
   removeItem: (sku: string) => void;
   setQty: (sku: string, qty: number) => void;
+  setLinePriceOverride: (sku: string, override: LinePriceOverride | null) => void;
+  setLineDiscount: (sku: string, discount: LineDiscount | null) => void;
   setDiscount: (discount: CartDiscount) => void;
   setShipping: (shipping: number) => void;
   setCustomer: (customer: { id: string; name: string } | null) => void;
@@ -96,6 +107,14 @@ export const useCartStore = create<CartState>((set) => ({
         qty <= 0
           ? state.lines.filter((l) => l.sku !== sku)
           : state.lines.map((l) => (l.sku === sku ? { ...l, qty } : l)),
+    })),
+  setLinePriceOverride: (sku, override) =>
+    set((state) => ({
+      lines: state.lines.map((l) => (l.sku === sku ? { ...l, priceOverride: override } : l)),
+    })),
+  setLineDiscount: (sku, discount) =>
+    set((state) => ({
+      lines: state.lines.map((l) => (l.sku === sku ? { ...l, lineDiscount: discount } : l)),
     })),
   clear: () =>
     set({ lines: [], discount: null, shipping: 0, customerId: null, customerName: null, heldCartId: null }),

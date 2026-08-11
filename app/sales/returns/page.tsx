@@ -42,6 +42,10 @@ export default async function SellReturnsPage() {
     refundMethod: r.refundMethod,
     reason: r.reason,
     createdBy: r.createdBy.name,
+    isExchange: r.isExchange,
+    exchangeTotal: currencyFmt(Number(r.exchangeTotal)),
+    netAmount: Number(r.netAmount),
+    netAmountFmt: currencyFmt(Math.abs(Number(r.netAmount))),
   }));
 
   return (

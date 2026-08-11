@@ -69,6 +69,8 @@ export const PERMISSIONS = {
   QUOTATION_CREATE: "quotation:create",
   // Shipments
   SHIPMENT_MANAGE: "shipment:manage",
+  // Checkout-time price override (damaged item, manager discretion)
+  PRICE_OVERRIDE: "checkout:price-override",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -99,6 +101,7 @@ const DEFAULT_GRANTS: Record<Role, PermissionKey[]> = {
     PERMISSIONS.QUOTATION_VIEW,
     PERMISSIONS.QUOTATION_CREATE,
     PERMISSIONS.SHIPMENT_MANAGE,
+    PERMISSIONS.PRICE_OVERRIDE,
   ],
   CASHIER: [
     PERMISSIONS.BILLS_REQUEST_CHANGE,

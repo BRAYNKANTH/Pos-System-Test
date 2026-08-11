@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { apiSuccess, apiError } from "@/lib/api-response";
-import { createSalesReturn, TransactionNotFoundError, InvalidReturnQtyError } from "@/lib/sales/returns";
+import { createSalesReturn, TransactionNotFoundError, InvalidReturnQtyError, UnknownExchangeSkuError } from "@/lib/sales/returns";
+import { InsufficientStockError } from "@/lib/inventory/stock";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -36,6 +37,12 @@ export async function POST(req: NextRequest) {
     : [];
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
   const refundMethod = typeof body?.refundMethod === "string" ? body.refundMethod : "cash";
+  const exchangeItems = Array.isArray(body?.exchangeItems)
+    ? body.exchangeItems
+        .map((i: { sku?: unknown; qty?: unknown }) => ({ sku: String(i?.sku ?? ""), qty: Number(i?.qty) }))
+        .filter((i: { sku: string; qty: number }) => i.sku && Number.isFinite(i.qty) && i.qty > 0)
+    : [];
+  const netPaymentMethod = typeof body?.netPaymentMethod === "string" ? body.netPaymentMethod : undefined;
 
   if (!transactionId || items.length === 0 || !reason) {
     return apiError("INVALID_INPUT", "transactionId, at least one item, and reason are required", { status: 400 });
@@ -48,7 +55,15 @@ export async function POST(req: NextRequest) {
     // inventory-approval sync path would need extending to pick up.
     // Flagged as a known gap rather than enqueueing a job that would
     // silently no-op.
-    const result = await createSalesReturn({ transactionId, items, reason, refundMethod, createdById: user.id });
+    const result = await createSalesReturn({
+      transactionId,
+      items,
+      reason,
+      refundMethod,
+      createdById: user.id,
+      exchangeItems: exchangeItems.length > 0 ? exchangeItems : undefined,
+      netPaymentMethod,
+    });
     return apiSuccess(result, { status: 201 });
   } catch (err) {
     if (err instanceof TransactionNotFoundError) {
@@ -56,6 +71,12 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof InvalidReturnQtyError) {
       return apiError("INVALID_QTY", err.message, { status: 409 });
+    }
+    if (err instanceof UnknownExchangeSkuError) {
+      return apiError("UNKNOWN_SKU", err.message, { status: 400 });
+    }
+    if (err instanceof InsufficientStockError) {
+      return apiError("INSUFFICIENT_STOCK", `Not enough stock for ${err.sku} to complete the exchange`, { status: 409 });
     }
     console.error("createSalesReturn failed", err);
     return apiError("RETURN_FAILED", "Failed to record sales return", { status: 500 });

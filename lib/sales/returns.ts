@@ -1,5 +1,6 @@
 import { prisma, TRANSACTION_OPTIONS } from "@/lib/prisma";
-import { creditDefaultLocation } from "@/lib/inventory/locationStock";
+import { creditDefaultLocation, debitDefaultLocationBestEffort } from "@/lib/inventory/locationStock";
+import { InsufficientStockError } from "@/lib/inventory/stock";
 
 export class TransactionNotFoundError extends Error {
   constructor() {
@@ -10,6 +11,12 @@ export class TransactionNotFoundError extends Error {
 export class InvalidReturnQtyError extends Error {
   constructor(public sku: string) {
     super(`Return quantity for ${sku} exceeds what was sold (minus already-returned quantity)`);
+  }
+}
+
+export class UnknownExchangeSkuError extends Error {
+  constructor(public sku: string) {
+    super(`Unknown SKU: ${sku}`);
   }
 }
 
@@ -26,6 +33,10 @@ export async function createSalesReturn(params: {
   reason: string;
   refundMethod: string;
   createdById: string;
+  /** Exchange — the replacement item(s) going out in the same operation
+   * as the return coming in. Omit/empty for a plain refund-only return. */
+  exchangeItems?: { sku: string; qty: number }[];
+  netPaymentMethod?: string;
 }) {
   return prisma.$transaction(async (tx) => {
     const transaction = await tx.transaction.findUnique({
@@ -81,6 +92,45 @@ export async function createSalesReturn(params: {
 
     refundAmount = Math.round(refundAmount * 100) / 100;
 
+    // Exchange: replacement item(s) go out in the same operation as the
+    // returned item(s) come in — race-safe stock deduction, same pattern
+    // as a normal sale (lib/inventory/stock.ts deductStockOnSale), just
+    // inlined here with its own reasonCategory so it reads distinctly in
+    // the Stock Adjustment Report.
+    const exchangeItems = params.exchangeItems ?? [];
+    let exchangeTotal = 0;
+    const exchangeItemsData: { sku: string; qty: number; unitPrice: number }[] = [];
+
+    for (const exItem of exchangeItems) {
+      if (exItem.qty <= 0) continue;
+      const item = await tx.inventoryItem.findUnique({ where: { sku: exItem.sku } });
+      if (!item) throw new UnknownExchangeSkuError(exItem.sku);
+
+      const result = await tx.inventoryItem.updateMany({
+        where: { sku: exItem.sku, qtyOnHand: { gte: exItem.qty } },
+        data: { qtyOnHand: { decrement: exItem.qty } },
+      });
+      if (result.count === 0) throw new InsufficientStockError(exItem.sku);
+
+      await tx.stockAdjustment.create({
+        data: {
+          sku: exItem.sku,
+          qtyChange: -exItem.qty,
+          type: "automated",
+          reasonCategory: "exchange_out",
+          status: "applied",
+        },
+      });
+      await debitDefaultLocationBestEffort(tx, exItem.sku, exItem.qty);
+
+      const unitPrice = Number(item.unitPrice);
+      exchangeTotal += unitPrice * exItem.qty;
+      exchangeItemsData.push({ sku: exItem.sku, qty: exItem.qty, unitPrice });
+    }
+
+    exchangeTotal = Math.round(exchangeTotal * 100) / 100;
+    const netAmount = Math.round((exchangeTotal - refundAmount) * 100) / 100;
+
     return tx.salesReturn.create({
       data: {
         transactionId: params.transactionId,
@@ -88,9 +138,14 @@ export async function createSalesReturn(params: {
         refundAmount,
         refundMethod: params.refundMethod,
         createdById: params.createdById,
+        isExchange: exchangeItemsData.length > 0,
+        exchangeTotal,
+        netAmount,
+        netPaymentMethod: exchangeItemsData.length > 0 ? params.netPaymentMethod ?? "cash" : null,
         items: { create: returnItemsData },
+        exchangeItems: { create: exchangeItemsData },
       },
-      include: { items: true },
+      include: { items: true, exchangeItems: true },
     });
   }, TRANSACTION_OPTIONS);
 }

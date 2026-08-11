@@ -9,7 +9,7 @@ import { PaymentModal } from "./_components/PaymentModal";
 import { RegisterStatusBar } from "./_components/RegisterStatusBar";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { calculateCart, applyDiscount } from "@/lib/pos/pricing";
+import { calculateCart, applyDiscount, applyLineOverridesAndDiscounts } from "@/lib/pos/pricing";
 import {
   RotateCcw,
   Calculator,
@@ -115,11 +115,7 @@ export default function PosPage() {
     if (lines.length === 0) {
       return { lines: [], subtotal: 0, totalDiscount: 0, tax: 0, shipping: 0, total: 0 };
     }
-    let cartLines = lines.map((l) => ({
-      sku: l.sku,
-      qty: l.qty,
-      unitPrice: l.unitPrice,
-    }));
+    let cartLines = applyLineOverridesAndDiscounts(lines);
     if (discount) {
       cartLines = applyDiscount(cartLines, {
         scope: "cart",
