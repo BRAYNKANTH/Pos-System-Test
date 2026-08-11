@@ -15,22 +15,39 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const name = typeof body?.name === "string" ? body.name : "";
-  const sku = typeof body?.sku === "string" ? body.sku : "";
   const category = typeof body?.category === "string" ? body.category : null;
   const brand = typeof body?.brand === "string" ? body.brand : null;
   const unitPrice = Number(body?.unitPrice) || 0;
   const purchasePrice = Number(body?.purchasePrice) || 0;
   const qtyOnHand = Number(body?.qtyOnHand) || 0;
   const lowStockThreshold = Number(body?.lowStockThreshold) || 0;
-  
-  if (!name || !sku) {
-    return apiError("INVALID_INPUT", "name and unique sku are required", { status: 400 });
+
+  if (!name) {
+    return apiError("INVALID_INPUT", "Product name is required", { status: 400 });
   }
 
-  // Check if SKU already exists
-  const existing = await prisma.inventoryItem.findUnique({ where: { sku } });
-  if (existing) {
-    return apiError("DUPLICATE_SKU", `SKU "${sku}" already exists`, { status: 409 });
+  let sku = typeof body?.sku === "string" ? body.sku.trim() : "";
+  if (!sku) {
+    let isUnique = false;
+    let attempts = 0;
+    while (!isUnique && attempts < 10) {
+      const generated = "SKU-" + Math.floor(100000 + Math.random() * 900000);
+      const exists = await prisma.inventoryItem.findUnique({ where: { sku: generated } });
+      if (!exists) {
+        sku = generated;
+        isUnique = true;
+      }
+      attempts++;
+    }
+    if (!sku) {
+      return apiError("CREATE_FAILED", "Failed to auto-generate unique SKU. Please provide one manually.", { status: 500 });
+    }
+  } else {
+    // Check if SKU already exists
+    const existing = await prisma.inventoryItem.findUnique({ where: { sku } });
+    if (existing) {
+      return apiError("DUPLICATE_SKU", `SKU "${sku}" already exists`, { status: 409 });
+    }
   }
 
   try {

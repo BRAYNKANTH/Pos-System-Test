@@ -126,11 +126,6 @@ export default function AddProductPage() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-    if (!sku.trim()) {
-      setErrorMsg("SKU is required.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
 
     setLoading(true);
     setErrorMsg("");
@@ -142,7 +137,7 @@ export default function AddProductPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          sku,
+          sku: sku.trim() || undefined,
           category: selectedCategory || null,
           brand: selectedBrand || null,
           unitPrice: parseFloat(excTaxSelling) || 0,
@@ -157,13 +152,15 @@ export default function AddProductPage() {
         throw new Error(data.error?.message || "Failed to save product.");
       }
 
+      const savedSku = data.data?.sku;
+
       setSuccessMsg(`Successfully saved product "${name}"!`);
       
       setTimeout(() => {
         if (mode === "save") {
           router.push("/inventory");
         } else if (mode === "save_stock") {
-          router.push(`/inventory?addStockSku=${sku}`);
+          router.push(`/inventory?addStockSku=${savedSku}`);
         } else {
           // Reset form for adding another
           setName("");
