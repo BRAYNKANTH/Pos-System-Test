@@ -191,7 +191,7 @@ export function CartPanel({
     <div className="flex flex-1 flex-col rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 min-h-0">
       
       {/* Customer Selector dropdown + Add Customer button */}
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <div className="relative flex-1">
           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-zinc-400">
             <User className="h-4 w-4" />
@@ -206,7 +206,7 @@ export function CartPanel({
                 setCustomer(null);
               }
             }}
-            className="h-11 w-full rounded border border-zinc-300 bg-transparent pl-9 pr-3 text-base outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+            className="h-9 w-full rounded border border-zinc-300 bg-transparent pl-9 pr-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
           >
             <option value="">Walk-In Customer</option>
             {customers.map((c) => (
@@ -218,15 +218,15 @@ export function CartPanel({
         </div>
         <button
           onClick={() => setIsCustomerModalOpen(true)}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 transition"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 transition"
           title="Add Customer"
         >
-          <UserPlus className="h-5 w-5" />
+          <UserPlus className="h-4.5 w-4.5" />
         </button>
       </div>
 
       {/* Barcode / SKU / Name Search input */}
-      <div className="relative mb-5">
+      <div className="relative mb-3">
         <div className="relative flex items-center">
           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-zinc-400">
             <Search className="h-4 w-4" />
@@ -240,7 +240,7 @@ export function CartPanel({
               setShowProductDropdown(true);
             }}
             onFocus={() => setShowProductDropdown(true)}
-            className="h-11 w-full rounded border border-zinc-300 bg-transparent pl-9 pr-10 text-base outline-none focus:border-indigo-500 dark:border-zinc-700"
+            className="h-9 w-full rounded border border-zinc-300 bg-transparent pl-9 pr-10 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700"
           />
           {productQuery && (
             <button
@@ -282,16 +282,15 @@ export function CartPanel({
           </div>
         )}
       </div>
-
       {/* Cart Items List */}
-      <div className="flex-1 overflow-y-auto border border-zinc-150 rounded-md mb-4 dark:border-zinc-800 scrollbar-thin">
+      <div className="flex-1 min-h-[280px] overflow-y-auto border border-zinc-150 rounded-md mb-3 dark:border-zinc-800 scrollbar-thin">
         <table className="w-full text-sm">
           <thead className="bg-zinc-50 sticky top-0 text-left text-sm font-bold text-zinc-500 border-b dark:bg-zinc-900 dark:border-zinc-800">
             <tr>
-              <th className="px-4 py-3">Product</th>
-              <th className="px-4 py-3 text-center">Quantity</th>
-              <th className="px-4 py-3 text-right">Subtotal</th>
-              <th className="px-4 py-3 text-center w-10"></th>
+              <th className="px-4 py-2">Product</th>
+              <th className="px-4 py-2 text-center">Quantity</th>
+              <th className="px-4 py-2 text-right">Subtotal</th>
+              <th className="px-4 py-2 text-center w-10"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -310,11 +309,11 @@ export function CartPanel({
 
                 return (
                   <tr key={line.sku} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-1.5">
                       <p className="font-semibold text-zinc-800 dark:text-zinc-100">{line.name}</p>
                       <p className="text-sm text-zinc-450 dark:text-zinc-500 font-mono">Rs {line.unitPrice.toFixed(2)}</p>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-1.5">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
                           onClick={() => setQty(line.sku, line.qty - 1)}
@@ -336,10 +335,10 @@ export function CartPanel({
                         </button>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono font-medium">
+                    <td className="px-4 py-1.5 text-right font-mono font-medium">
                       Rs {sub.toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-1.5 text-center">
                       <button
                         onClick={() => removeItem(line.sku)}
                         className="text-red-500 hover:text-red-700"
