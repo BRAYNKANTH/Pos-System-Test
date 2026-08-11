@@ -1,15 +1,3 @@
-// Cloud POS System — full schema, all 5 modules.
-// Source of truth: docs/POS_Detailed_Build_Plan.md
-//
-// Ownership:
-//   - `User` and `AuditLog` are core/shared — flag before editing (see root OWNER conventions in README).
-//   - Every other model belongs to the module noted above it. Editing your own module's
-//     models is always fine; adding a field another module needs should be flagged in PR review.
-//
-// No live database is wired up yet. `npx prisma generate` works offline (schema-only).
-// `npx prisma migrate dev` requires DATABASE_URL / DIRECT_URL to point at a real Postgres
-// (Supabase) instance — see .env.example.
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -20,42 +8,53 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-enum Role {
-  ADMIN
-  MANAGER
-  CASHIER
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Core / shared
-// ─────────────────────────────────────────────────────────────────────────
-
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(CASHIER)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  transactions            Transaction[]       @relation("TransactionCashier")
-  requestedBillChanges    BillChangeRequest[]  @relation("BillChangeRequestedBy")
-  approvedBillChanges     BillChangeRequest[]  @relation("BillChangeApprovedBy")
-  requestedStockAdjustments StockAdjustment[]  @relation("StockAdjustmentRequestedBy")
-  approvedStockAdjustments StockAdjustment[]   @relation("StockAdjustmentApprovedBy")
-  auditActorEntries        AuditLog[]          @relation("AuditActor")
-  auditApproverEntries      AuditLog[]         @relation("AuditApprover")
+  id                        String              @id @default(cuid())
+  name                      String
+  email                     String              @unique
+  passwordHash              String
+  role                      Role                @default(CASHIER)
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+  auditActorEntries         AuditLog[]          @relation("AuditActor")
+  auditApproverEntries      AuditLog[]          @relation("AuditApprover")
+  approvedBillChanges       BillChangeRequest[] @relation("BillChangeApprovedBy")
+  requestedBillChanges      BillChangeRequest[] @relation("BillChangeRequestedBy")
+  heldCarts                 HeldCart[]
+  sessions                  Session[]
+  approvedStockAdjustments  StockAdjustment[]   @relation("StockAdjustmentApprovedBy")
+  requestedStockAdjustments StockAdjustment[]   @relation("StockAdjustmentRequestedBy")
+  transactions              Transaction[]       @relation("TransactionCashier")
+  stockTransfers            StockTransfer[]
+  purchases                 Purchase[]
+  registerSessionsOpened    RegisterSession[]   @relation("RegisterOpenedBy")
+  registerSessionsClosed    RegisterSession[]   @relation("RegisterClosedBy")
+  cashMovements             CashMovement[]
+  salesReturns              SalesReturn[]
+  quotations                Quotation[]
 
   @@map("users")
 }
 
-/// Immutable change trail for bill edits (Module 2) and inventory adjustments
-/// (Module 3), also queried by Module 5's audit report. Shape mirrors
-/// docs/api-contracts.md → AuditLogEntry. Never update or delete rows — append only.
+/// Backs the signed session cookie (see lib/auth/session.ts). Not in the
+/// original build plan — no module covered basic login, only PIN re-auth
+/// and RBAC checks that assume a session already exists.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+/// Immutable change trail for bill edits and inventory adjustments, also
+/// queried by the audit report. Shape mirrors docs/api-contracts.md →
+/// AuditLogEntry. Never update or delete rows — append only.
 model AuditLog {
   id         String   @id @default(cuid())
-  entityType String // e.g. "bill", "bill_change_request", "stock_adjustment"
+  entityType String
   entityId   String
   oldValue   Json?
   newValue   Json?
@@ -63,72 +62,110 @@ model AuditLog {
   approverId String?
   reason     String?
   timestamp  DateTime @default(now())
-
-  actor    User  @relation("AuditActor", fields: [actorId], references: [id])
-  approver User? @relation("AuditApprover", fields: [approverId], references: [id])
+  actor      User     @relation("AuditActor", fields: [actorId], references: [id])
+  approver   User?    @relation("AuditApprover", fields: [approverId], references: [id])
 
   @@index([entityType, entityId])
   @@map("audit_log")
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Module 1 — Checkout / Sales
-// ─────────────────────────────────────────────────────────────────────────
-
 model Transaction {
-  id             String   @id @default(cuid())
+  id             String            @id @default(cuid())
   registerId     String
   cashierId      String
-  subtotal       Decimal  @db.Decimal(12, 2)
-  tax            Decimal  @db.Decimal(12, 2)
-  total          Decimal  @db.Decimal(12, 2)
+  subtotal       Decimal           @db.Decimal(12, 2)
+  tax            Decimal           @db.Decimal(12, 2)
+  total          Decimal           @db.Decimal(12, 2)
   paymentMethod  String
-  status         String   @default("completed")
-  idempotencyKey String   @unique
-  createdAt      DateTime @default(now())
-
-  cashier User              @relation("TransactionCashier", fields: [cashierId], references: [id])
-  items   TransactionItem[]
-  bill    Bill?
+  status         String            @default("completed")
+  idempotencyKey String            @unique
+  createdAt      DateTime          @default(now())
+  customerId     String?
+  shipping       Decimal           @default(0) @db.Decimal(12, 2)
+  zohoInvoiceId  String?
+  registerSessionId String?
+  bill           Bill?
+  tenders        PaymentTender[]
+  items          TransactionItem[]
+  cashier        User              @relation("TransactionCashier", fields: [cashierId], references: [id])
+  customer       Customer?         @relation(fields: [customerId], references: [id])
+  registerSession RegisterSession? @relation(fields: [registerSessionId], references: [id])
+  salesReturns   SalesReturn[]
+  shipment       Shipment?
 
   @@map("transactions")
 }
 
+/// Split/partial payments — one row per tender (e.g. $20 cash + $10
+/// card). `Transaction.paymentMethod` stays a single string for backward
+/// compat with existing receipt/report code: it's the one method's name
+/// when there's a single tender, or "split" when there are several.
+model PaymentTender {
+  id            String      @id @default(cuid())
+  transactionId String
+  method        String
+  amount        Decimal     @db.Decimal(12, 2)
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@map("payment_tenders")
+}
+
+/// Backs both "Draft" and "Suspend" on the POS screen — a cart parked
+/// mid-sale so the cashier can serve another customer, listed and
+/// resumable later (possibly by a different terminal). `type`
+/// distinguishes the two for the UI; the underlying shape is identical.
+/// Multiple rows can exist at once — there's no single "one held cart"
+/// slot.
+model HeldCart {
+  id         String    @id @default(cuid())
+  type       String
+  cashierId  String
+  customerId String?
+  lines      Json
+  discount   Json?
+  shipping   Decimal?  @db.Decimal(12, 2)
+  note       String?
+  createdAt  DateTime  @default(now())
+  cashier    User      @relation(fields: [cashierId], references: [id])
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  @@map("held_carts")
+}
+
 model TransactionItem {
-  id            String  @id @default(cuid())
+  id            String      @id @default(cuid())
   transactionId String
   sku           String
   qty           Int
-  unitPrice     Decimal @db.Decimal(12, 2)
-  discount      Decimal @default(0) @db.Decimal(12, 2)
-  taxAmount     Decimal @default(0) @db.Decimal(12, 2)
-
-  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  unitPrice     Decimal     @db.Decimal(12, 2)
+  discount      Decimal     @default(0) @db.Decimal(12, 2)
+  taxAmount     Decimal     @default(0) @db.Decimal(12, 2)
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@map("transaction_items")
 }
 
 model TaxRule {
-  id       String  @id @default(cuid())
-  region   String
-  category String
-  rate     Decimal @db.Decimal(6, 4)
+  id        String   @id @default(cuid())
+  name      String   @default("Tax")
+  region    String
+  category  String
+  rate      Decimal  @db.Decimal(6, 4)
+  rateType  String   @default("Percentage") // "Percentage" | "Fixed"
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
 
   @@map("tax_rules")
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Module 2 — Bill Change Workflow
-// ─────────────────────────────────────────────────────────────────────────
-
 model Bill {
-  id            String   @id @default(cuid())
-  transactionId String   @unique
-  status        String   @default("locked") // locked | editable
-  lockedAt      DateTime @default(now())
-
-  transaction    Transaction         @relation(fields: [transactionId], references: [id])
-  changeRequests BillChangeRequest[]
+  id               String              @id @default(cuid())
+  transactionId    String              @unique
+  status           String              @default("locked")
+  lockedAt         DateTime            @default(now())
+  zohoCreditNoteId String?
+  changeRequests   BillChangeRequest[]
+  transaction      Transaction         @relation(fields: [transactionId], references: [id])
 
   @@map("bills")
 }
@@ -137,76 +174,78 @@ model BillChangeRequest {
   id              String    @id @default(cuid())
   billId          String
   requestedBy     String
-  type            String // correction | refund | void
+  type            String
   reason          String
   proposedChanges Json
-  status          String    @default("pending") // pending | approved | rejected
+  status          String    @default("pending")
   approvedBy      String?
   approvedAt      DateTime?
   createdAt       DateTime  @default(now())
-
-  bill      Bill  @relation(fields: [billId], references: [id])
-  requester User  @relation("BillChangeRequestedBy", fields: [requestedBy], references: [id])
-  approver  User? @relation("BillChangeApprovedBy", fields: [approvedBy], references: [id])
+  approver        User?     @relation("BillChangeApprovedBy", fields: [approvedBy], references: [id])
+  bill            Bill      @relation(fields: [billId], references: [id])
+  requester       User      @relation("BillChangeRequestedBy", fields: [requestedBy], references: [id])
 
   @@map("bill_change_requests")
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Module 3 — Inventory & Approval
-// ─────────────────────────────────────────────────────────────────────────
-
+/// `unitPrice`/`category`/`brand` aren't in the original build plan's table
+/// list — there's no separate product-catalog table anywhere in the spec,
+/// and checkout's product lookup needs a sellable price, category, and
+/// brand to filter/search by. This doubles as the product catalog.
 model InventoryItem {
-  id                String  @id @default(cuid())
-  sku               String  @unique
+  id                String            @id @default(cuid())
+  sku               String            @unique
   name              String
-  qtyOnHand         Int     @default(0)
+  unitPrice         Decimal           @default(0) @db.Decimal(12, 2)
+  purchasePrice     Decimal           @default(0) @db.Decimal(12, 2)
+  expiryDate        DateTime?
+  qtyOnHand         Int               @default(0)
   locationId        String?
-  lowStockThreshold Int     @default(0)
-
-  adjustments StockAdjustment[]
+  lowStockThreshold Int               @default(0)
+  brand             String?
+  category          String?
+  zohoItemId        String?
+  adjustments       StockAdjustment[]
+  locationStock     LocationStock[]
+  purchaseItems     PurchaseItem[]
 
   @@map("inventory_items")
 }
 
 model StockAdjustment {
-  id               String    @id @default(cuid())
+  id               String        @id @default(cuid())
   sku              String
   qtyChange        Int
-  type             String // automated | manual
+  type             String
   reasonCategory   String?
-  status           String    @default("applied") // applied | pending
-  thresholdFlagged Boolean   @default(false)
+  status           String        @default("applied")
+  thresholdFlagged Boolean       @default(false)
   requestedBy      String?
   approvedBy       String?
-  createdAt        DateTime  @default(now())
-
-  item      InventoryItem @relation(fields: [sku], references: [sku])
-  requester User?         @relation("StockAdjustmentRequestedBy", fields: [requestedBy], references: [id])
-  approver  User?         @relation("StockAdjustmentApprovedBy", fields: [approvedBy], references: [id])
+  createdAt        DateTime      @default(now())
+  zohoAdjustmentId String?
+  approver         User?         @relation("StockAdjustmentApprovedBy", fields: [approvedBy], references: [id])
+  requester        User?         @relation("StockAdjustmentRequestedBy", fields: [requestedBy], references: [id])
+  item             InventoryItem @relation(fields: [sku], references: [sku])
 
   @@map("stock_adjustments")
 }
 
 model ApprovalThreshold {
   id            String  @id @default(cuid())
-  scope         String // category or sku this threshold applies to
-  thresholdType String // percent | absolute
+  scope         String
+  thresholdType String
   value         Decimal @db.Decimal(12, 2)
 
   @@map("approval_thresholds")
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Module 4 — Sync Engine & Integration
-// ─────────────────────────────────────────────────────────────────────────
-
 model SyncQueueJob {
   id            String    @id @default(cuid())
-  entityType    String // transaction | bill | stock_adjustment | customer
+  entityType    String
   entityId      String
   payload       Json
-  status        String    @default("pending") // pending | synced | failed
+  status        String    @default("pending")
   retryCount    Int       @default(0)
   lastAttemptAt DateTime?
   createdAt     DateTime  @default(now())
@@ -227,19 +266,19 @@ model ZohoConnection {
   @@map("zoho_connections")
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Module 5 — Customers, Reports & Admin Settings
-// ─────────────────────────────────────────────────────────────────────────
-
 model Customer {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   name            String
-  email           String?  @unique
+  email           String?       @unique
   phone           String?
+  group           String        @default("Retail / Walk-In")
   loyaltyMetadata Json?
-  createdAt       DateTime @default(now())
-
-  orders Order[]
+  zohoContactId   String?
+  createdAt       DateTime      @default(now())
+  heldCarts       HeldCart[]
+  orders          Order[]
+  transactions    Transaction[]
+  quotations      Quotation[]
 
   @@map("customers")
 }
@@ -247,10 +286,9 @@ model Customer {
 model Order {
   id         String   @id @default(cuid())
   customerId String
-  status     String   @default("pending") // pending | preparing | fulfilled | refunded
+  status     String   @default("pending")
   createdAt  DateTime @default(now())
-
-  customer Customer @relation(fields: [customerId], references: [id])
+  customer   Customer @relation(fields: [customerId], references: [id])
 
   @@map("orders")
 }
@@ -263,4 +301,326 @@ model RolePermission {
 
   @@unique([role, permissionKey])
   @@map("roles_permissions")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  CASHIER
+}
+
+model Discount {
+  id                    String   @id @default(cuid())
+  name                  String
+  startsAt              DateTime
+  endsAt                DateTime
+  discountType          String
+  discountAmount        Decimal  @db.Decimal(12, 2)
+  priority              Int      @default(1)
+  brand                 String?
+  category              String?
+  products              Json     // JSON array of DBProduct structure: {sku, name}
+  location              String   @default("Mektas Supers")
+  sellingPriceGroup     String   @default("All")
+  applyInCustomerGroups Boolean  @default(false)
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+
+  @@map("discounts")
+}
+
+model Expense {
+  id        String   @id @default(cuid())
+  category  String
+  details   String
+  status    String   @default("Completed")
+  amount    Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+
+  @@map("expenses")
+}
+
+model Supplier {
+  id        String     @id @default(cuid())
+  name      String
+  email     String?    @unique
+  phone     String?
+  address   String?
+  createdAt DateTime   @default(now())
+  purchases Purchase[]
+
+  @@map("suppliers")
+}
+
+/// A goods-received purchase order from a supplier. Line items live in
+/// `PurchaseItem`; receiving a purchase (see app/api/purchases) increases
+/// `InventoryItem.qtyOnHand` for each line via `increaseStockOnReceipt`,
+/// the same function the standalone "Receive Stock" quick action uses.
+model Purchase {
+  id            String         @id @default(cuid())
+  supplierId    String
+  referenceNo   String         @unique
+  status        String         @default("Completed")
+  paymentMethod String
+  amountPaid    Decimal        @db.Decimal(12, 2)
+  totalAmount   Decimal        @default(0) @db.Decimal(12, 2)
+  locationId    String?
+  createdById   String?
+  createdAt     DateTime       @default(now())
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  location      Location?      @relation(fields: [locationId], references: [id])
+  createdBy     User?          @relation(fields: [createdById], references: [id])
+  items         PurchaseItem[]
+
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id         String   @id @default(cuid())
+  purchaseId String
+  sku        String
+  qty        Int
+  unitCost   Decimal  @db.Decimal(12, 2)
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  item       InventoryItem @relation(fields: [sku], references: [sku])
+
+  @@map("purchase_items")
+}
+
+/// A physical store/branch. `isDefault` marks the one existing stock
+/// (and existing `Transaction`s, which predate multi-location) is
+/// attributed to — seeded once during migration from the previous
+/// single-location assumption.
+model Location {
+  id            String          @id @default(cuid())
+  name          String
+  code          String          @unique
+  city          String?
+  country       String?
+  landmark      String?
+  isDefault     Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  stock         LocationStock[]
+  purchases     Purchase[]
+  transfersFrom StockTransfer[] @relation("TransferFrom")
+  transfersTo   StockTransfer[] @relation("TransferTo")
+
+  @@map("locations")
+}
+
+/// Per-location breakdown of stock. `InventoryItem.qtyOnHand` stays the
+/// system-wide total used by checkout/adjustments (unchanged behavior);
+/// this table is an additional breakdown of where that total physically
+/// sits, moved between rows by Stock Transfers. Sum of a sku's rows here
+/// is kept equal to its `InventoryItem.qtyOnHand` by construction: goods
+/// receipts/purchases credit the receiving location, transfers only move
+/// quantity between two rows (net zero), never creating or destroying it.
+model LocationStock {
+  id         String        @id @default(cuid())
+  locationId String
+  sku        String
+  qty        Int           @default(0)
+  location   Location      @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  item       InventoryItem @relation(fields: [sku], references: [sku])
+
+  @@unique([locationId, sku])
+  @@map("location_stock")
+}
+
+/// Move stock from one location to another. Race-safe conditional
+/// decrement at the source (like deductStockOnSale), incrementing
+/// (upserting) the destination in the same transaction. Doesn't touch
+/// InventoryItem.qtyOnHand — the system-wide total is unchanged by an
+/// internal transfer.
+model StockTransfer {
+  id             String   @id @default(cuid())
+  sku            String
+  qty            Int
+  fromLocationId String
+  toLocationId   String
+  note           String?
+  requestedBy    String
+  createdAt      DateTime @default(now())
+  fromLocation   Location @relation("TransferFrom", fields: [fromLocationId], references: [id])
+  toLocation     Location @relation("TransferTo", fields: [toLocationId], references: [id])
+  requester      User     @relation(fields: [requestedBy], references: [id])
+
+  @@map("stock_transfers")
+}
+
+/// Cash register / drawer session — opened with a starting float, closed
+/// with an actual cash count reconciled against expected (float + cash
+/// sales + cash-in − cash-out). Checkout links a completed sale to
+/// whichever session is currently open (see app/api/pos/checkout), but
+/// doesn't require one to be open — `Transaction.registerId` (a plain
+/// label string) keeps working standalone either way.
+model RegisterSession {
+  id             String         @id @default(cuid())
+  openedById     String
+  closedById     String?
+  openingFloat   Decimal        @db.Decimal(12, 2)
+  closingCount   Decimal?       @db.Decimal(12, 2)
+  expectedCash   Decimal?       @db.Decimal(12, 2)
+  cashDifference Decimal?       @db.Decimal(12, 2)
+  status         String         @default("open") // open | closed
+  notes          String?
+  openedAt       DateTime       @default(now())
+  closedAt       DateTime?
+  openedBy       User           @relation("RegisterOpenedBy", fields: [openedById], references: [id])
+  closedBy       User?          @relation("RegisterClosedBy", fields: [closedById], references: [id])
+  cashMovements  CashMovement[]
+  transactions   Transaction[]
+
+  @@map("register_sessions")
+}
+
+/// Manual cash in/out during an open register session (e.g. paying out
+/// for a delivery, or adding change float) — kept separate from sales so
+/// the till-close reconciliation can account for both.
+model CashMovement {
+  id          String          @id @default(cuid())
+  sessionId   String
+  type        String // "in" | "out"
+  amount      Decimal         @db.Decimal(12, 2)
+  reason      String
+  createdById String
+  createdAt   DateTime        @default(now())
+  session     RegisterSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdBy   User            @relation(fields: [createdById], references: [id])
+
+  @@map("cash_movements")
+}
+
+/// Singleton row (single-location business) for the storefront/business
+/// profile — replaces what was previously a localStorage-only "Business
+/// Settings" page that didn't sync across devices or browsers.
+/// Singleton row storing the whole Business Settings form (~40 fields
+/// spanning business/tax/product/POS-shortcut tabs) as one JSON blob
+/// rather than one column per field — this settings screen is display
+/// configuration, not data other tables join against, so a typed column
+/// per field would be a lot of schema for no query benefit. What matters
+/// for "no mockups" is that it's a real, shared, persisted row instead of
+/// the previous localStorage-only copy (which didn't sync across
+/// devices/browsers at all).
+model BusinessSettings {
+  id        String   @id @default("default")
+  data      Json     @default("{}")
+  updatedAt DateTime @updatedAt
+
+  @@map("business_settings")
+}
+
+/// Same reasoning as BusinessSettings — stores the invoice numbering
+/// schemes + layout list (previously two separate localStorage arrays)
+/// as one JSON blob: `{ schemes: [...], layouts: [...] }`.
+model InvoiceSettings {
+  id        String   @id @default("default")
+  data      Json     @default("{}")
+  updatedAt DateTime @updatedAt
+
+  @@map("invoice_settings")
+}
+
+model BarcodeSettings {
+  id            String   @id @default("default")
+  defaultType   String   @default("C128")
+  prefix        String?
+  labelWidthMm  Int      @default(38)
+  labelHeightMm Int      @default(25)
+  updatedAt     DateTime @updatedAt
+
+  @@map("barcode_settings")
+}
+
+model Printer {
+  id             String   @id @default(cuid())
+  name           String
+  connectionType String   @default("usb") // usb | network | bluetooth
+  paperWidthMm   Int      @default(80)
+  ipAddress      String?
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@map("printers")
+}
+
+/// A return against a previously completed sale — restocks the returned
+/// quantities (see lib/sales/returns.ts) and is reflected as negative
+/// revenue in reports, separate from a full BillChangeRequest void
+/// (which is an admin-approval workflow for disputed/incorrect bills;
+/// this is the everyday "customer brought an item back" counter flow).
+model SalesReturn {
+  id            String            @id @default(cuid())
+  transactionId String
+  reason        String
+  refundAmount  Decimal           @db.Decimal(12, 2)
+  refundMethod  String            @default("cash")
+  createdById   String
+  createdAt     DateTime          @default(now())
+  transaction   Transaction       @relation(fields: [transactionId], references: [id])
+  createdBy     User              @relation(fields: [createdById], references: [id])
+  items         SalesReturnItem[]
+
+  @@map("sales_returns")
+}
+
+model SalesReturnItem {
+  id        String      @id @default(cuid())
+  returnId  String
+  sku       String
+  qty       Int
+  unitPrice Decimal     @db.Decimal(12, 2)
+  return    SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@map("sales_return_items")
+}
+
+/// A non-binding price quote — no stock or ledger impact until
+/// converted into a real POS sale (see app/api/sales/quotations/[id]/convert).
+model Quotation {
+  id                     String          @id @default(cuid())
+  referenceNo            String          @unique
+  customerId             String?
+  status                 String          @default("draft") // draft | sent | converted | expired
+  validUntil             DateTime?
+  subtotal               Decimal         @default(0) @db.Decimal(12, 2)
+  discount               Decimal         @default(0) @db.Decimal(12, 2)
+  total                  Decimal         @default(0) @db.Decimal(12, 2)
+  convertedTransactionId String?         @unique
+  createdById            String
+  createdAt              DateTime        @default(now())
+  customer               Customer?       @relation(fields: [customerId], references: [id])
+  createdBy              User            @relation(fields: [createdById], references: [id])
+  items                  QuotationItem[]
+
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id          String    @id @default(cuid())
+  quotationId String
+  sku         String
+  name        String
+  qty         Int
+  unitPrice   Decimal   @db.Decimal(12, 2)
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@map("quotation_items")
+}
+
+/// Delivery tracking for a completed sale. One-to-one with Transaction —
+/// not every sale ships (in-store pickup is the default), so this is
+/// created on demand rather than always alongside the transaction.
+model Shipment {
+  id             String      @id @default(cuid())
+  transactionId  String      @unique
+  carrier        String?
+  trackingNumber String?
+  status         String      @default("pending") // pending | shipped | delivered
+  shippedAt      DateTime?
+  deliveredAt    DateTime?
+  createdAt      DateTime    @default(now())
+  transaction    Transaction @relation(fields: [transactionId], references: [id])
+
+  @@map("shipments")
 }

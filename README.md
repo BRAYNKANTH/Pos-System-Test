@@ -11,19 +11,20 @@ two-way sync to Zoho Books and both online (cloud-synced) and offline
 
 Full scope, per-module pages/backend functions/DB tables:
 [docs/POS_Detailed_Build_Plan.md](./docs/POS_Detailed_Build_Plan.md).
-Module ownership: [docs/task-allocation-plan.md](./docs/task-allocation-plan.md).
 Shared shapes (API envelope, audit log, sync job, RBAC):
 [docs/api-contracts.md](./docs/api-contracts.md).
 
 ## Tech stack
 
 - **Frontend**: Next.js (App Router), React, Tailwind CSS
-- **Backend**: Next.js Route Handlers / Server Actions
-- **Database**: PostgreSQL on Supabase (shared team project) via Prisma
+- **Backend**: Next.js Route Handlers
+- **Database**: PostgreSQL on Supabase via Prisma
+- **Auth**: custom email/password sessions (bcrypt + signed JWT cookie),
+  see `lib/auth/session.ts`
 - **Local client storage (offline mode)**: IndexedDB (Dexie.js)
-- **Job queue**: Redis + BullMQ (background sync to Zoho)
+- **Sync queue**: the `sync_queue` DB table + a standalone polling worker
+  (no Redis/BullMQ, no extra service to install — see `lib/sync/`)
 - **State**: Zustand / TanStack Query
-- **Containers**: Docker Compose (Redis only — Postgres is on Supabase)
 
 ## Getting started
 
@@ -33,26 +34,20 @@ cp .env.example .env.local
 ```
 
 Fill in `.env.local`:
-- `DATABASE_URL` / `DIRECT_URL` — ask whoever holds the shared Supabase
-  project for these. Don't create your own project; everyone reads/writes
-  the same instance.
-- `REDIS_URL` — leave as `redis://localhost:6379` if you run Redis locally
-  via Docker Compose below.
-- `ZOHO_CLIENT_ID` / `ZOHO_CLIENT_SECRET` — only needed if you're working
-  on Module 4 (Sync Engine).
+- `DATABASE_URL` / `DIRECT_URL` — your Supabase project's connection
+  strings (pooled + direct — see comments in `.env.example` for the
+  pgbouncer/percent-encoding gotchas).
+- `SESSION_SECRET` — any long random string for local dev.
+- `ZOHO_CLIENT_ID` / `ZOHO_CLIENT_SECRET` — only needed to actually reach
+  Zoho; everything else works without them (sync jobs just sit as
+  `failed` on `/admin/sync-status`).
 
-Start Redis (needed for BullMQ / Module 4, and anywhere else that enqueues
-sync jobs):
-
-```bash
-docker compose up -d
-```
-
-Apply the schema to your Supabase instance once `DATABASE_URL`/`DIRECT_URL`
-are real:
+Apply the schema and seed some starter data (an admin + cashier login,
+a handful of products, default thresholds/permissions):
 
 ```bash
 npm run prisma:migrate
+npm run db:seed
 ```
 
 Run the dev server:
@@ -61,43 +56,56 @@ Run the dev server:
 npm run dev
 ```
 
+Seeded logins: `admin@pos.local` / `Admin123!` and `cashier@pos.local` /
+`Cashier123!`.
+
+To process the Zoho sync queue, run the worker in a separate terminal:
+
+```bash
+npm run worker
+```
+
 ## Repo structure
 
 ```
-app/pos/*                    → Module 1: Checkout / Sales
-app/bills/*                  → Module 2: Bill Change Workflow
-app/inventory/*              → Module 3: Inventory & Approval
+app/pos/*                    → Checkout / Sales
+app/bills/*                  → Bill Change Workflow
+app/inventory/*              → Inventory & Approval
 app/customers/*, app/orders/*, app/reports/*
-                              → Module 5: Customers, Reports & Admin Settings
-app/admin/*                  → SHARED route tree — see task-allocation-plan.md
-                                for the per-subfolder ownership split
+                              → Customers, Reports & Admin Settings
+app/admin/*                  → admin route tree — approvals, settings, sync status
 
-app/api/*                    → API routes, mirrors the module split above
-lib/sync/*                   → Module 4: Sync Engine & Integration
-lib/auth/*                   → shared RBAC — flag before editing
-lib/prisma.ts                → shared Prisma client singleton
+app/api/*                    → API routes, mirrors the structure above
+lib/sync/*                   → Zoho OAuth, sync queue, worker, retry/backoff
+lib/inventory/stock.ts       → race-safe stock deduction, threshold/approval logic
+lib/bills/changeRequests.ts  → bill change request submit/approve/reject
+lib/audit/writeAuditLog.ts   → shared append-only audit log helper
+lib/auth/*                   → session management + RBAC
+lib/offline/*                → Dexie offline queue + reconnect sync
+lib/prisma.ts                → Prisma client singleton
 lib/api-response.ts          → shared API response envelope helper
-lib/queue/connection.ts      → shared Redis connection for BullMQ
 components/ui/*              → shared UI primitives (button, badge, modal)
+components/ApprovalActions.tsx → shared approve/reject-with-reauth pattern
 
-prisma/schema.prisma         → full DB schema, all modules' tables
-docs/                        → build plan, task allocation, API contracts
+prisma/schema.prisma         → full DB schema
+prisma/seed.ts                → starter data
+scripts/worker.ts            → standalone sync worker entrypoint (`npm run worker`)
+docs/                        → build plan, API contracts
 ```
-
-Each module folder has an `OWNER.md` — read it before editing. Don't edit
-outside your module's folders without flagging it with the owner first.
-Files marked **shared** (`lib/auth/*`, `components/*`, the core tables in
-`prisma/schema.prisma`) need the same courtesy — your own module's models
-and pages are always fine to edit freely.
 
 ## Conventions
 
 - Every route handler returns the shared envelope from
   `lib/api-response.ts` (`apiSuccess` / `apiError`) — see
   `docs/api-contracts.md`.
-- Protected routes call `checkPermission()` from `lib/auth/rbac.ts`.
-- Anything that needs to reach Zoho goes through Module 4's
-  `enqueueSyncJob`, never a direct API call — see `docs/api-contracts.md`
-  for the job payload shape.
-- If you're blocked on another module's real implementation, mock it
-  against the contract in `docs/api-contracts.md` rather than waiting.
+- Protected routes call `checkPermission()` from `lib/auth/rbac.ts`
+  (DB-backed via the `roles_permissions` table, editable at
+  `/admin/settings/roles`).
+- Approval actions (bill changes, inventory adjustments) require a
+  password re-auth (`/api/auth/admin-reauth`) before the approve/reject
+  call succeeds — see `components/ApprovalActions.tsx`.
+- Anything that needs to reach Zoho goes through `enqueueSyncJob`
+  (`lib/sync/enqueueSyncJob.ts`), never a direct API call — see
+  `docs/api-contracts.md` for the job payload shape.
+- The original transaction/bill is never mutated by an approved change —
+  see the comments in `lib/bills/changeRequests.ts`.

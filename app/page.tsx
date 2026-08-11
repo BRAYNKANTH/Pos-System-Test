@@ -1,39 +1,62 @@
-import Link from "next/link";
+import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth/session";
+import { redirect } from "next/navigation";
+import DashboardClient from "./_components/DashboardClient";
 
-const modules = [
-  { href: "/pos", label: "Checkout / Sales", owner: "Person 1" },
-  { href: "/bills", label: "Bill Change Workflow", owner: "Person 2" },
-  { href: "/inventory", label: "Inventory & Approval", owner: "Person 3" },
-  { href: "/customers", label: "Customers", owner: "Person 5" },
-  { href: "/reports", label: "Reports", owner: "Person 5" },
-  { href: "/admin", label: "Admin Settings", owner: "Person 5" },
-];
+export const dynamic = "force-dynamic";
 
-export default function Home() {
+export default async function DashboardPage() {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login");
+  }
+
+  // Fetch real statistics from the DB. Was previously two separate,
+  // sequential, unbounded `findMany()` calls fetching every column of
+  // every row just to sum a couple of fields in JS — on a connection
+  // with real network latency, that's the difference between one fast
+  // DB-side aggregate and two slow full-table transfers. Now: one
+  // DB-side sum (`aggregate`) + one narrow, bounded `findMany`, run in
+  // parallel.
+  const [completedAgg, unpaidTransactions] = await Promise.all([
+    prisma.transaction.aggregate({
+      where: { status: "completed" },
+      _sum: { total: true, subtotal: true },
+    }),
+    prisma.transaction.findMany({
+      where: { status: { notIn: ["completed", "voided"] } },
+      select: { id: true, total: true },
+      take: 50,
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  // Sum calculations
+  const totalSalesVal = Number(completedAgg._sum.total ?? 0);
+  const netRevenueVal = Number(completedAgg._sum.subtotal ?? 0);
+  const invoiceDueVal = unpaidTransactions.reduce((sum, t) => sum + Number(t.total), 0);
+
+  const stats = {
+    totalSales: totalSalesVal,
+    netRevenue: netRevenueVal,
+    invoiceDue: invoiceDueVal,
+    sellReturns: 0.0,
+    totalPurchase: 0.0,
+    purchaseDue: 0.0,
+    purchaseReturns: 0.0,
+    expenses: 1250.0, // Mock baseline expense
+  };
+
+  const formattedUnpaid = unpaidTransactions.map((tx) => ({
+    id: tx.id,
+    total: Number(tx.total),
+  }));
+
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-16">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Cloud POS System
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Base scaffold — each module below is owned by a different teammate.
-          See <code className="font-mono">docs/task-allocation-plan.md</code>.
-        </p>
-      </div>
-      <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-        {modules.map((m) => (
-          <li key={m.href}>
-            <Link
-              href={m.href}
-              className="flex items-center justify-between px-4 py-3 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900"
-            >
-              <span className="font-medium">{m.label}</span>
-              <span className="text-zinc-400">{m.owner}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </main>
+    <DashboardClient
+      user={{ name: user.name, role: user.role }}
+      stats={stats}
+      unpaidTransactions={formattedUnpaid}
+    />
   );
 }

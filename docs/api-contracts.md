@@ -1,14 +1,14 @@
 # API Contracts
 
-Shared shapes every module builds against. Implementations live in `lib/`
-— this doc is the spec; the code is the source of truth if they ever
-drift, but please keep them in sync.
+Shared shapes used throughout the codebase. Implementations live in
+`lib/` — this doc is the spec; the code is the source of truth if they
+ever drift.
 
 ## API response envelope
 
 Implementation: [`lib/api-response.ts`](../lib/api-response.ts) —
-`apiSuccess()` / `apiError()`. Every route handler in every module returns
-one of these two shapes.
+`apiSuccess()` / `apiError()`. Every route handler returns one of these
+two shapes.
 
 ```ts
 type ApiSuccess<T> = {
@@ -44,9 +44,10 @@ export async function POST(req: Request) {
 
 Implementation: `AuditLog` model in
 [`prisma/schema.prisma`](../prisma/schema.prisma), table `audit_log`.
-Written by Modules 2 and 3 on every approved bill change / stock
-adjustment; read by Module 5's `/reports/audit`. **Append-only — never
-update or delete a row.**
+Written on every approved bill change / stock adjustment (see
+`lib/bills/changeRequests.ts`, `lib/inventory/stock.ts`,
+`lib/audit/writeAuditLog.ts`); read by `/reports/audit`.
+**Append-only — never update or delete a row.**
 
 ```ts
 type AuditLogEntry = {
@@ -65,10 +66,11 @@ type AuditLogEntry = {
 ## Sync job payload
 
 Implementation: `SyncQueueJob` model in
-[`prisma/schema.prisma`](../prisma/schema.prisma), table `sync_queue`, and
-the BullMQ job data enqueued via Module 4's `enqueueSyncJob` (in
-`lib/sync/`). Modules 1–3 call `enqueueSyncJob` — never talk to Zoho
-directly.
+[`prisma/schema.prisma`](../prisma/schema.prisma), table `sync_queue`.
+Anything that needs to reach Zoho calls `enqueueSyncJob`
+(`lib/sync/enqueueSyncJob.ts`) rather than talking to Zoho directly. A
+standalone worker (`npm run worker`, see `lib/sync/worker.ts`) polls this
+table and processes pending rows.
 
 ```ts
 type SyncJobPayload = {
@@ -79,17 +81,17 @@ type SyncJobPayload = {
   status: "pending" | "synced" | "failed";
   retryCount: number;
   lastAttemptAt: string | null; // ISO 8601
-  idempotencyKey?: string;      // required for anything that creates a Zoho record
 };
 ```
 
 ## RBAC — roles & permission keys
 
 Implementation: [`lib/auth/rbac.ts`](../lib/auth/rbac.ts) —
-`checkPermission(role, permission)`. The current version is a static map;
-Person 5 will back it with the `roles_permissions` table
-(`RolePermission` model) so thresholds/permissions are admin-configurable
-at `/admin/settings/roles`.
+`checkPermission(role, permission)`. DB-backed via the
+`roles_permissions` table (`RolePermission` model), editable live at
+`/admin/settings/roles`; falls back to a static default map only for a
+role with zero rows configured (e.g. right after a fresh migration,
+before `prisma/seed.ts` has run).
 
 ```ts
 type Role = "ADMIN" | "MANAGER" | "CASHIER"; // Prisma enum, see schema.prisma
@@ -114,10 +116,10 @@ Usage in a route handler:
 ```ts
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 
-if (!checkPermission(currentUser.role, PERMISSIONS.BILLS_APPROVE)) {
+if (!(await checkPermission(currentUser.role, PERMISSIONS.BILLS_APPROVE))) {
   return apiError("FORBIDDEN", "Not allowed", { status: 403 });
 }
 ```
 
 Adding a new permission key: add it to `PERMISSIONS` in `lib/auth/rbac.ts`
-(shared file — flag the change) rather than inventing a string inline.
+rather than inventing a string inline.

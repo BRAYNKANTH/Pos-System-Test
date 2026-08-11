@@ -8,7 +8,7 @@ call them.**
 
 ---
 
-## 1. Checkout / Sales — Person 1
+## 1. Checkout / Sales
 
 ### Database Tables
 - `transactions` — id, register_id, cashier_id, subtotal, tax, total, payment_method, status, idempotency_key, created_at
@@ -37,7 +37,7 @@ call them.**
 
 ---
 
-## 2. Bill Change Workflow — Person 2
+## 2. Bill Change Workflow
 
 ### Database Tables
 - `bills` — id, transaction_id, status (locked/editable), locked_at
@@ -53,7 +53,7 @@ call them.**
 | `approveChangeRequest` | `POST /api/bills/requests/:id/approve` | Admin approves — triggers audit log + Zoho re-sync |
 | `rejectChangeRequest` | `POST /api/bills/requests/:id/reject` | Admin rejects with logged reason |
 | `writeAuditLog` | internal helper | Writes immutable entry: old/new values, actor, approver, timestamp, reason |
-| `syncBillAdjustment` | internal, calls Module 4 queue | Sends linked credit note/updated invoice to Zoho, never overwrites original |
+| `syncBillAdjustment` | internal, calls the sync queue | Sends linked credit note/updated invoice to Zoho, never overwrites original |
 | `notifyAdmin` | internal, in-app/email | Notifies Admin when a request is pending |
 
 ### Frontend Pages
@@ -67,7 +67,7 @@ call them.**
 
 ---
 
-## 3. Inventory & Approval — Person 3
+## 3. Inventory & Approval
 
 ### Database Tables
 - `inventory_items` — id, sku, name, qty_on_hand, location_id, low_stock_threshold
@@ -77,7 +77,7 @@ call them.**
 ### Backend Functions
 | Function | Endpoint | Purpose |
 |---|---|---|
-| `deductStockOnSale` | internal trigger from Module 1 | Automated deduction in real time as items sell |
+| `deductStockOnSale` | internal trigger from checkout | Automated deduction in real time as items sell |
 | `increaseStockOnReceipt` | `POST /api/inventory/goods-receipt` | Automated increase from purchase orders |
 | `submitManualAdjustment` | `POST /api/inventory/:sku/adjust` | Staff submits stock take/damage/spoilage/correction |
 | `checkThreshold` | internal helper | Flags adjustment as sudden/large per configured threshold |
@@ -99,7 +99,7 @@ call them.**
 
 ---
 
-## 4. Sync Engine & Integration — Person 4
+## 4. Sync Engine & Integration
 
 ### Database Tables
 - `sync_queue` — id, entity_type, entity_id, payload, status (pending/synced/failed), retry_count, last_attempt_at
@@ -126,7 +126,7 @@ call them.**
 
 ---
 
-## 5. Customers, Reports & Admin Settings — Person 5
+## 5. Customers, Reports & Admin Settings
 
 ### Database Tables
 - `customers` — id, name, email, phone, loyalty_metadata, created_at
@@ -163,12 +163,7 @@ call them.**
 ## Shared Contracts
 
 Core DB schema (transactions, inventory_items, bills, audit_log, users),
-audit_log entry shape (Modules 2, 3, 5), API contract format published by
-Module 4 first, shared UI components (approval-queue pattern, badges,
-modals used by Modules 2 and 3), and file/folder ownership boundaries to
-avoid merge conflicts.
+audit_log entry shape, API response envelope, shared UI components
+(approval-queue pattern, badges, modals).
 
-See [api-contracts.md](./api-contracts.md) for the concrete shapes and
-[task-allocation-plan.md](./task-allocation-plan.md) for the folder-level
-ownership map (including the `app/admin/*` split, which is more granular
-than a simple "one module = one top-level folder" rule).
+See [api-contracts.md](./api-contracts.md) for the concrete shapes.

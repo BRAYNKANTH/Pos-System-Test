@@ -1,11 +1,36 @@
-export default function Page() {
+import { prisma } from "@/lib/prisma";
+import InventoryListClient from "./_components/InventoryListClient";
+import { getCurrentUser } from "@/lib/auth/session";
+import { redirect } from "next/navigation";
+
+export const dynamic = "force-dynamic";
+
+export default async function InventoryPage() {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login");
+  }
+
+  // Fetch all products sorted by name
+  const items = await prisma.inventoryItem.findMany({
+    orderBy: { name: "asc" },
+  });
+
+  const formattedItems = items.map((item) => ({
+    ...item,
+    unitPrice: Number(item.unitPrice),
+    purchasePrice: Number(item.purchasePrice),
+  }));
+
+  // Extract unique categories and brands for the filter boxes
+  const categories = Array.from(new Set(items.map((i) => i.category).filter(Boolean)));
+  const brands = Array.from(new Set(items.map((i) => i.brand).filter(Boolean)));
+
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-2 px-6 py-16">
-      <h1 className="text-xl font-semibold tracking-tight">Inventory & Approval</h1>
-      <p className="text-sm text-zinc-500">
-        Coming soon — Owner: Person 3. See <code className="font-mono">OWNER.md</code>{" "}
-        in this folder for scope.
-      </p>
-    </main>
+    <InventoryListClient
+      initialItems={formattedItems}
+      categories={categories}
+      brands={brands}
+    />
   );
 }

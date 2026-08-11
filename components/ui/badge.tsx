@@ -6,14 +6,14 @@ import { cn } from "@/lib/utils";
 // elsewhere (sync status, order status, etc). Map your domain status
 // string to one of these variants at the call site.
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+  "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-tight ring-1 ring-inset",
   {
     variants: {
       variant: {
-        default: "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200",
-        success: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
-        warning: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-        destructive: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+        default: "bg-zinc-100 text-zinc-700 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-700",
+        success: "bg-green-50 text-green-700 ring-green-200 dark:bg-green-900/40 dark:text-green-300 dark:ring-green-800",
+        warning: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:ring-amber-800",
+        destructive: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-900/40 dark:text-red-300 dark:ring-red-800",
       },
     },
     defaultVariants: { variant: "default" },
