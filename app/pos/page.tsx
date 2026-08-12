@@ -28,7 +28,11 @@ import {
   MapPin,
   Clock,
   Briefcase,
-  Home
+  Home,
+  Check,
+  Terminal,
+  Printer,
+  Edit
 } from "lucide-react";
 
 type HeldCart = {
@@ -52,6 +56,15 @@ type RecentTx = {
   items: any[];
 };
 
+// Generate consistent short numeric IDs from cuid strings for display
+function getShortNumericId(id: string, base: number = 10300) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 1000) + base;
+}
+
 export default function PosPage() {
   const {
     lines,
@@ -60,6 +73,7 @@ export default function PosPage() {
     customerId,
     customerName,
     loadHeldCart,
+    loadQuotationItems,
     clear,
   } = useCartStore();
 
@@ -67,6 +81,9 @@ export default function PosPage() {
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>([]);
   const [recentTxs, setRecentTxs] = useState<RecentTx[]>([]);
+  const [quotations, setQuotations] = useState<any[]>([]);
+  const [activeTxTab, setActiveTxTab] = useState<"final" | "quotation" | "draft">("final");
+
   // Products — fetched once and passed to both CartPanel and ProductSearch.
   // Previously each component fetched independently, causing 2 identical
   // /api/pos/products requests on every page load.
@@ -83,6 +100,17 @@ export default function PosPage() {
   const [isHeldModalOpen, setIsHeldModalOpen] = useState(false);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
+
+  // Fetch quotations list
+  async function fetchQuotations() {
+    try {
+      const res = await fetch("/api/sales/quotations");
+      const body = await res.json();
+      if (body.success) setQuotations(body.data);
+    } catch (err) {
+      console.error("Failed to fetch quotations:", err);
+    }
+  }
 
   // Calculator inputs
   const [calcInput, setCalcInput] = useState("");
@@ -346,6 +374,8 @@ export default function PosPage() {
           <button
             onClick={() => {
               fetchRecentTransactions();
+              fetchHeldCarts();
+              fetchQuotations();
               setIsRecentModalOpen(true);
             }}
             className="flex h-9 w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition"
@@ -366,8 +396,11 @@ export default function PosPage() {
           {/* Held Carts / Resume Drawer button */}
           <button
             onClick={() => {
+              fetchRecentTransactions();
               fetchHeldCarts();
-              setIsHeldModalOpen(true);
+              fetchQuotations();
+              setActiveTxTab("draft");
+              setIsRecentModalOpen(true);
             }}
             className="flex h-9 w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition"
             title="Resumable Held Sales"
@@ -452,6 +485,8 @@ export default function PosPage() {
           <button
             onClick={() => {
               fetchRecentTransactions();
+              fetchHeldCarts();
+              fetchQuotations();
               setIsRecentModalOpen(true);
             }}
             className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 transition"
@@ -524,73 +559,189 @@ export default function PosPage() {
         calculationPayload={calculation}
       />
 
-      {/* Suspended/Draft Carts Drawer */}
-      <Modal open={isHeldModalOpen} onClose={() => setIsHeldModalOpen(false)} title="Resumable Held Sales">
-        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-          {heldCarts.length === 0 ? (
-            <p className="text-sm text-zinc-400 text-center py-6">No held sales found.</p>
-          ) : (
-            heldCarts.map((c) => (
-              <div key={c.id} className="flex flex-col gap-2 rounded-md border p-3 dark:border-zinc-800">
-                <div className="flex items-center justify-between">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-bold uppercase ${
-                    c.type === "suspended" ? "bg-amber-100 text-amber-800 dark:bg-amber-950/20 dark:text-amber-400" : "bg-blue-100 text-blue-800 dark:bg-blue-950/20 dark:text-blue-400"
-                  }`}>
-                    {c.type}
-                  </span>
-                  <span className="text-xs text-zinc-400">{new Date(c.createdAt).toLocaleString()}</span>
-                </div>
-                <div className="text-xs space-y-1">
-                  <p><strong>Customer:</strong> {c.customer?.name ?? "Walk-In Customer"}</p>
-                  <p><strong>Items:</strong> {Array.isArray(c.lines) ? c.lines.reduce((sum: number, l: any) => sum + (l.qty || 0), 0) : 0}</p>
-                  <p><strong>Total:</strong> Rs {c.shipping + (Array.isArray(c.lines) ? c.lines.reduce((sum: number, l: any) => sum + (l.qty * l.unitPrice), 0) : 0)}</p>
-                </div>
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={() => handleResumeCart(c)}
-                    className="flex-1 rounded bg-indigo-600 py-1 text-xs font-semibold text-white hover:bg-indigo-700 transition"
-                  >
-                    Resume
-                  </button>
-                  <button
-                    onClick={() => handleDeleteHeldCart(c.id)}
-                    className="rounded bg-zinc-100 p-1 text-red-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 transition"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
+      {/* Unified Recent Transactions Modal */}
+      <Modal open={isRecentModalOpen} onClose={() => setIsRecentModalOpen(false)} title="Recent Transactions">
+        <div className="flex border-b border-zinc-200 dark:border-zinc-800 mb-4 text-sm font-semibold">
+          <button
+            onClick={() => setActiveTxTab("final")}
+            className={`flex items-center gap-1.5 px-4 py-2 border-b-2 transition ${
+              activeTxTab === "final"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400"
+                : "border-transparent text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            <Check className="h-4 w-4 text-green-500" />
+            Final
+          </button>
+          <button
+            onClick={() => setActiveTxTab("quotation")}
+            className={`flex items-center gap-1.5 px-4 py-2 border-b-2 transition ${
+              activeTxTab === "quotation"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400"
+                : "border-transparent text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            <Terminal className="h-4 w-4 text-blue-500" />
+            Quotation
+          </button>
+          <button
+            onClick={() => setActiveTxTab("draft")}
+            className={`flex items-center gap-1.5 px-4 py-2 border-b-2 transition ${
+              activeTxTab === "draft"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400"
+                : "border-transparent text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            <Terminal className="h-4 w-4 text-amber-500" />
+            Draft
+          </button>
         </div>
-      </Modal>
 
-      {/* Recent Transactions List */}
-      <Modal open={isRecentModalOpen} onClose={() => setIsRecentModalOpen(false)} title="Recent Completed Sales">
-        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-          {recentTxs.length === 0 ? (
-            <p className="text-sm text-zinc-400 text-center py-6">No recent sales found.</p>
-          ) : (
-            recentTxs.map((tx) => (
-              <div key={tx.id} className="flex flex-col gap-2 rounded-md border p-3 dark:border-zinc-800 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold font-mono text-indigo-600 dark:text-indigo-400">{tx.id}</span>
-                  <span className="text-xs text-zinc-400">{new Date(tx.createdAt).toLocaleTimeString()}</span>
-                </div>
-                <div className="text-xs flex items-center justify-between">
-                  <div>
-                    <p><strong>Customer:</strong> {tx.customer?.name ?? "Walk-In"}</p>
-                    <p><strong>Method:</strong> <span className="capitalize">{tx.paymentMethod}</span></p>
+        {/* Tab 1: Final (Completed Sales) */}
+        {activeTxTab === "final" && (
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+            {recentTxs.length === 0 ? (
+              <p className="text-sm text-zinc-400 text-center py-6">No completed sales found.</p>
+            ) : (
+              recentTxs.map((tx, idx) => {
+                const shortId = getShortNumericId(tx.id, 10300);
+                return (
+                  <div key={tx.id} className="flex items-center justify-between text-sm py-2.5 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 px-2 rounded">
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-400 font-medium">{idx + 1}.</span>
+                      <span className="font-bold text-zinc-900 dark:text-white">{shortId}</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">({tx.customer?.name ?? "Walk-In Customer"})</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">{Number(tx.total).toFixed(2)}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => triggerAlert("error", "Completed sales are locked. Request a bill change from the Bills panel.")}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-650 hover:bg-zinc-50 transition dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-350 dark:hover:bg-zinc-800 shadow-sm"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => window.print()}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-650 hover:bg-zinc-50 transition dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-350 dark:hover:bg-zinc-800 shadow-sm"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                          Print
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-zinc-805 dark:text-white">Rs {Number(tx.total).toFixed(2)}</p>
-                    <p className="text-xs text-zinc-400">{tx.items.length} items</p>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* Tab 2: Quotations */}
+        {activeTxTab === "quotation" && (
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+            {quotations.length === 0 ? (
+              <p className="text-sm text-zinc-400 text-center py-6">No quotations found.</p>
+            ) : (
+              quotations.map((q, idx) => {
+                const shortId = getShortNumericId(q.id, 20300);
+                const itemsTotal = q.items?.reduce((sum: number, i: any) => sum + (i.qty * Number(i.unitPrice)), 0) || 0;
+                const totalAmt = itemsTotal + Number(q.shipping) - Number(q.discount || 0);
+                return (
+                  <div key={q.id} className="flex items-center justify-between text-sm py-2.5 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 px-2 rounded">
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-400 font-medium">{idx + 1}.</span>
+                      <span className="font-bold text-zinc-900 dark:text-white">{shortId}</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">({q.customer?.name ?? "Walk-In Customer"})</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">{totalAmt.toFixed(2)}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            loadQuotationItems({
+                              lines: q.items.map((i: any) => ({ sku: i.sku, name: i.name, unitPrice: Number(i.unitPrice), qty: i.qty })),
+                              customerId: q.customerId,
+                              customerName: q.customer?.name ?? null,
+                            });
+                            setIsRecentModalOpen(false);
+                            triggerAlert("success", "Quotation items loaded into cart.");
+                          }}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-650 hover:bg-zinc-50 transition dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-350 dark:hover:bg-zinc-800 shadow-sm"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => window.print()}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-650 hover:bg-zinc-50 transition dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-350 dark:hover:bg-zinc-800 shadow-sm"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                          Print
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: Draft (Held Carts) */}
+        {activeTxTab === "draft" && (
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+            {heldCarts.length === 0 ? (
+              <p className="text-sm text-zinc-400 text-center py-6">No held drafts found.</p>
+            ) : (
+              heldCarts.map((c, idx) => {
+                const shortId = getShortNumericId(c.id, 30100);
+                const linesArray = Array.isArray(c.lines) ? c.lines : [];
+                const itemsTotal = linesArray.reduce((sum: number, l: any) => sum + ((l.qty || 0) * (l.unitPrice || 0)), 0);
+                const totalAmt = itemsTotal + Number(c.shipping || 0);
+                return (
+                  <div key={c.id} className="flex items-center justify-between text-sm py-2.5 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 px-2 rounded">
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-400 font-medium">{idx + 1}.</span>
+                      <span className="font-bold text-zinc-900 dark:text-white">{shortId}</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400 flex flex-wrap gap-1 items-center">
+                        <span>({c.customer?.name ?? "Walk-In"})</span>
+                        <span className="text-[10px] uppercase font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-1 rounded">{c.type}</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">{totalAmt.toFixed(2)}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleResumeCart(c)}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-655 hover:bg-zinc-50 transition dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-350 dark:hover:bg-zinc-800 shadow-sm"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => triggerAlert("error", "Draft invoices cannot be printed. Please resume and finalize sale first.")}
+                          className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-400 hover:bg-zinc-50 transition dark:border-zinc-800 dark:bg-zinc-900 shadow-sm"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                          Print
+                        </button>
+                        <button
+                          onClick={() => handleDeleteHeldCart(c.id)}
+                          className="inline-flex items-center justify-center rounded border border-red-200 bg-red-50 p-1 text-red-600 hover:bg-red-100 transition dark:bg-red-950/20 dark:border-red-900"
+                          title="Delete Draft"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* Calculator Modal */}

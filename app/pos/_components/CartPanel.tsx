@@ -54,6 +54,9 @@ export function CartPanel({
     setQty,
     setLinePriceOverride,
     setLineDiscount,
+    setLineDescription,
+    setLineLotExpiry,
+    setLineUnit,
     setDiscount,
     setShipping,
     setCustomer,
@@ -77,6 +80,7 @@ export function CartPanel({
   const [lineOverrideReason, setLineOverrideReason] = useState("");
   const [lineDiscountType, setLineDiscountType] = useState<"percent" | "amount">("percent");
   const [lineDiscountValue, setLineDiscountValue] = useState("");
+  const [lineDescription, setLineDescriptionText] = useState("");
 
   // Modal input values
   const [newCustomerName, setNewCustomerName] = useState("");
@@ -189,18 +193,34 @@ export function CartPanel({
   // pre-filled with that line's current values if it already has any.
   function openLineEdit(sku: string) {
     const line = lines.find((l) => l.sku === sku);
-    setLineOverridePrice(line?.priceOverride ? String(line.priceOverride.newPrice) : "");
+    setLineOverridePrice(line?.priceOverride ? String(line.priceOverride.newPrice) : (line ? String(line.unitPrice) : ""));
     setLineOverrideReason(line?.priceOverride?.reason ?? "");
     setLineDiscountType(line?.lineDiscount?.type ?? "percent");
-    setLineDiscountValue(line?.lineDiscount ? String(line.lineDiscount.value) : "");
+    setLineDiscountValue(line?.lineDiscount ? String(line.lineDiscount.value) : "0.00");
+    setLineDescriptionText(line?.description ?? "");
     setEditingLineSku(sku);
   }
 
   function handleSaveLineEdit() {
     if (!editingLineSku) return;
+    const line = lines.find((l) => l.sku === editingLineSku);
+    if (!line) return;
 
-    if (canOverridePrice && lineOverridePrice && lineOverrideReason.trim()) {
-      setLinePriceOverride(editingLineSku, { newPrice: Number(lineOverridePrice), reason: lineOverrideReason.trim() });
+    const newPrice = Number(lineOverridePrice);
+    const hasPriceChanged = newPrice !== line.unitPrice;
+
+    // Price override requires price override permission OR if cashier doesn't have it, we just set custom note
+    if (canOverridePrice && (hasPriceChanged || lineDescription.trim())) {
+      setLinePriceOverride(editingLineSku, {
+        newPrice: hasPriceChanged ? newPrice : line.unitPrice,
+        reason: lineOverrideReason.trim() || lineDescription.trim() || "Description/custom edit details"
+      });
+    } else if (lineDescription.trim()) {
+      // cashiers can save description notes as a priceOverride with the current price to audit log it
+      setLinePriceOverride(editingLineSku, {
+        newPrice: line.unitPrice,
+        reason: lineDescription.trim()
+      });
     } else {
       setLinePriceOverride(editingLineSku, null);
     }
@@ -211,6 +231,7 @@ export function CartPanel({
       setLineDiscount(editingLineSku, null);
     }
 
+    setLineDescription(editingLineSku, lineDescription.trim() || null);
     setEditingLineSku(null);
   }
 
@@ -275,8 +296,8 @@ export function CartPanel({
       </div>
 
       {/* Barcode / SKU / Name Search input */}
-      <div className="relative mb-3">
-        <div className="relative flex items-center">
+      <div className="relative mb-3 flex gap-2">
+        <div className="relative flex-1">
           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-zinc-400">
             <Search className="h-4 w-4" />
           </div>
@@ -297,16 +318,22 @@ export function CartPanel({
                 setProductQuery("");
                 setShowProductDropdown(false);
               }}
-              className="absolute right-3 text-zinc-400 hover:text-zinc-600"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-650"
             >
               <X className="h-5 w-5" />
             </button>
           )}
         </div>
+        <button
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-700 transition"
+          title="Search / Scan"
+        >
+          <Plus className="h-4.5 w-4.5" />
+        </button>
 
         {/* Local Search Dropdown */}
         {showProductDropdown && filteredProducts.length > 0 && (
-          <div className="absolute left-0 right-0 z-20 mt-1 max-h-60 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="absolute left-0 right-0 z-20 mt-10 max-h-60 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
             {filteredProducts.map((p) => (
               <button
                 key={p.sku}
@@ -320,7 +347,7 @@ export function CartPanel({
               >
                 <div>
                   <p className="font-semibold text-zinc-800 dark:text-zinc-200">{p.name}</p>
-                  <p className="text-xs text-zinc-400">{p.sku}</p>
+                  <p className="text-xs text-zinc-450 dark:text-zinc-500">{p.sku}</p>
                 </div>
                 <div className="text-right">
                   <p className="font-mono font-medium">Rs {p.unitPrice.toFixed(2)}</p>
@@ -331,100 +358,128 @@ export function CartPanel({
           </div>
         )}
       </div>
+
       {/* Cart Items List */}
       <div className="flex-1 min-h-[280px] overflow-y-auto border border-zinc-150 rounded-md mb-3 dark:border-zinc-800 scrollbar-thin">
-        <table className="w-full text-sm">
-          <thead className="bg-zinc-50 sticky top-0 text-left text-sm font-bold text-zinc-500 border-b dark:bg-zinc-900 dark:border-zinc-800">
+        <table className="w-full text-sm table-fixed">
+          <thead className="bg-zinc-50 sticky top-0 text-left text-sm font-bold text-zinc-500 border-b dark:bg-zinc-900 dark:border-zinc-800 z-10">
             <tr>
-              <th className="px-4 py-2">Product</th>
-              <th className="px-4 py-2 text-center">Quantity</th>
-              <th className="px-4 py-2 text-right">Subtotal</th>
-              <th className="px-4 py-2 text-center w-16"></th>
+              <th className="px-4 py-3 w-[45%]">Product <span className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 text-[10px]">i</span></th>
+              <th className="px-4 py-3 text-center w-[25%]">Quantity</th>
+              <th className="px-4 py-3 text-right w-[20%]">Subtotal</th>
+              <th className="px-4 py-3 text-center w-[10%]">X</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
             {lines.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-12 text-center text-zinc-400 text-sm">
+                <td colSpan={4} className="px-4 py-12 text-center text-zinc-450 text-sm">
                   No products added to the invoice yet.
                 </td>
               </tr>
             ) : (
               lines.map((line) => {
-                // Calculate individual subtotal including proportional discount if applied
                 const lineCalc = calc.lines.find((l) => l.sku === line.sku);
-                // lineSubtotal is the post-discount total for this line
                 const sub = lineCalc ? lineCalc.lineSubtotal : line.qty * line.unitPrice;
 
                 return (
-                  <tr key={line.sku} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30">
-                    <td className="px-4 py-1.5">
-                      <p className="font-semibold text-zinc-800 dark:text-zinc-100">{line.name}</p>
-                      {line.priceOverride ? (
-                        <p className="text-sm font-mono">
-                          <span className="text-zinc-400 line-through mr-1.5">Rs {line.unitPrice.toFixed(2)}</span>
-                          <span className="text-amber-650 font-bold">Rs {line.priceOverride.newPrice.toFixed(2)}</span>
-                        </p>
-                      ) : (
-                        <p className="text-sm text-zinc-450 dark:text-zinc-500 font-mono">Rs {line.unitPrice.toFixed(2)}</p>
-                      )}
-                      {(line.priceOverride || line.lineDiscount) && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {line.priceOverride && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[11px] font-bold dark:bg-amber-950/30 dark:text-amber-400" title={line.priceOverride.reason}>
-                              <ShieldAlert className="h-2.5 w-2.5" /> Price overridden
-                            </span>
-                          )}
-                          {line.lineDiscount && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-650 text-[11px] font-bold dark:bg-indigo-950/30 dark:text-indigo-400">
-                              <Tag className="h-2.5 w-2.5" />
-                              {line.lineDiscount.type === "amount" ? `Rs ${line.lineDiscount.value}` : `${line.lineDiscount.value}%`} off
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-1.5">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          onClick={() => setQty(line.sku, line.qty - 1)}
-                          className="flex h-6 w-6 items-center justify-center rounded border border-zinc-300 hover:bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                        >
-                          <Minus className="h-3 w-3" />
-                        </button>
-                        <input
-                          type="number"
-                          value={line.qty}
-                          onChange={(e) => setQty(line.sku, Number(e.target.value))}
-                          className="h-6 w-10 border border-zinc-300 rounded text-center text-xs font-mono outline-none dark:border-zinc-700 dark:bg-zinc-900"
-                        />
-                        <button
-                          onClick={() => setQty(line.sku, line.qty + 1)}
-                          className="flex h-6 w-6 items-center justify-center rounded border border-zinc-300 hover:bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-4 py-1.5 text-right font-mono font-medium">
-                      Rs {sub.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-1.5">
-                      <div className="flex items-center justify-center gap-2">
+                  <tr key={line.sku} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 align-top">
+                    {/* Product Column */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-start gap-1 flex-wrap">
+                        <span className="font-bold text-zinc-800 dark:text-zinc-100 break-words max-w-[85%]">{line.name}</span>
+                        {/* Info Button trigger */}
                         <button
                           onClick={() => openLineEdit(line.sku)}
-                          className="text-zinc-400 hover:text-indigo-600"
-                          title="Price override / line discount"
+                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 text-[9px] font-bold"
+                          title="Click to override price, add discounts, or serial numbers"
                         >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => removeItem(line.sku)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <X className="h-4.5 w-4.5" />
+                          i
                         </button>
                       </div>
+                      
+                      {line.priceOverride ? (
+                        <p className="text-xs font-mono mt-0.5">
+                          <span className="text-zinc-400 line-through mr-1">Rs {line.unitPrice.toFixed(2)}</span>
+                          <span className="text-amber-600 font-bold">Rs {line.priceOverride.newPrice.toFixed(2)}</span>
+                        </p>
+                      ) : (
+                        <p className="text-xs text-zinc-450 dark:text-zinc-500 font-mono mt-0.5">Rs {line.unitPrice.toFixed(2)}</p>
+                      )}
+
+                      {/* Display descriptions if added */}
+                      {line.description && (
+                        <p className="text-[10px] text-zinc-550 dark:text-zinc-400 font-mono bg-zinc-50 dark:bg-zinc-900 border px-1.5 py-0.5 rounded mt-1 italic break-words">
+                          {line.description}
+                        </p>
+                      )}
+
+                      {/* Lot & Expiry Dropdown Selector */}
+                      <div className="mt-2">
+                        <select
+                          value={line.lotExpiry || ""}
+                          onChange={(e) => setLineLotExpiry(line.sku, e.target.value || null)}
+                          className="h-7 w-full max-w-[160px] rounded border border-zinc-200 bg-transparent px-2 text-xs outline-none focus:border-indigo-400 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-650 dark:text-zinc-350"
+                        >
+                          <option value="">Lot & Expiry</option>
+                          <option value="Lot A - Exp 2026-12-31">Lot A - Exp 2026-12-31</option>
+                          <option value="Lot B - Exp 2027-06-30">Lot B - Exp 2027-06-30</option>
+                        </select>
+                      </div>
+                    </td>
+
+                    {/* Quantity Column */}
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => setQty(line.sku, line.qty - 1)}
+                            className="flex h-6 w-6 items-center justify-center rounded border border-zinc-300 hover:bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                          >
+                            <Minus className="h-3 w-3" />
+                          </button>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={line.qty.toFixed(2)}
+                            onChange={(e) => setQty(line.sku, parseFloat(e.target.value) || 0)}
+                            className="h-6 w-12 border border-zinc-300 rounded text-center text-xs font-mono outline-none dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
+                          />
+                          <button
+                            onClick={() => setQty(line.sku, line.qty + 1)}
+                            className="flex h-6 w-6 items-center justify-center rounded border border-zinc-300 hover:bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </button>
+                        </div>
+                        {/* Pieces / unit select dropdown */}
+                        <div className="mt-1 w-full flex justify-center">
+                          <select
+                            value={line.unit || "Pieces"}
+                            onChange={(e) => setLineUnit(line.sku, e.target.value)}
+                            className="h-7 w-[76px] rounded border border-zinc-200 bg-transparent px-1 text-center text-[10px] outline-none focus:border-indigo-400 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-650 dark:text-zinc-350"
+                          >
+                            <option value="Pieces">Pieces</option>
+                            <option value="KG">KG</option>
+                            <option value="Box">Box</option>
+                          </select>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Subtotal Column */}
+                    <td className="px-4 py-3 text-right font-mono font-bold text-zinc-800 dark:text-zinc-100">
+                      Rs {sub.toFixed(2)}
+                    </td>
+
+                    {/* Delete Column */}
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => removeItem(line.sku)}
+                        className="text-red-500 hover:text-red-700 transition"
+                      >
+                        <X className="h-5 w-5 mx-auto font-bold" />
+                      </button>
                     </td>
                   </tr>
                 );
@@ -434,66 +489,79 @@ export function CartPanel({
         </table>
       </div>
 
-      {/* Cart Summary Totals Block */}
+      {/* Cart Summary Totals Block (restructured to match Screenshot 2) */}
       <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
         
         {/* Row 1: Items & Total display */}
-        <div className="flex items-center justify-between text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-3">
-          <span>Items: {lines.reduce((acc, l) => acc + l.qty, 0)}</span>
-          <span className="text-base text-zinc-900 dark:text-white">
-            Total: <span className="font-mono">Rs {calc.total.toFixed(2)}</span>
+        <div className="flex items-center justify-between text-base font-extrabold text-zinc-900 dark:text-white mb-4">
+          <span>Items: {lines.reduce((acc, l) => acc + l.qty, 0).toFixed(2)}</span>
+          <span>
+            Total: <span className="font-mono">{calc.total.toFixed(2)}</span>
           </span>
         </div>
 
-        {/* Row 2: Discount, Tax, Shipping buttons with Edit icons */}
-        <div className="grid grid-cols-3 gap-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+        {/* Row 2: Discount, Tax, Shipping buttons in clean text blocks with info & edit icons */}
+        <div className="grid grid-cols-3 gap-2 border-t border-dashed pt-3 border-zinc-200 dark:border-zinc-800">
           
-          {/* Discount Button */}
-          <button
-            onClick={() => setIsDiscountModalOpen(true)}
-            className="flex items-center justify-between rounded border border-zinc-200 p-2 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900 text-left"
-          >
-            <div className="flex items-center gap-1">
-              <Percent className="h-3.5 w-3.5 text-indigo-500" />
-              <div>
-                <p className="text-xs text-zinc-450 dark:text-zinc-500 font-bold uppercase">Discount (-)</p>
-                <p className="font-mono mt-0.5 text-zinc-700 dark:text-zinc-300">
-                  {discount ? `${discount.type === "amount" ? "Rs " : ""}${discount.value}${discount.type === "percent" ? "%" : ""}` : "0.00"}
-                </p>
-              </div>
+          {/* Discount Block */}
+          <div className="flex flex-col gap-1 rounded bg-zinc-50/50 p-2 dark:bg-zinc-900/50">
+            <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 uppercase">
+              <span>Discount</span>
+              <button className="text-blue-500 font-extrabold">i</button>
+              <span>(-):</span>
             </div>
-            <Edit className="h-3 w-3 text-zinc-400" />
-          </button>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <button
+                onClick={() => setIsDiscountModalOpen(true)}
+                className="text-zinc-700 hover:text-indigo-600 dark:text-zinc-400"
+              >
+                <Edit className="h-3.5 w-3.5" />
+              </button>
+              <span className="font-mono text-xs font-bold text-zinc-850 dark:text-zinc-200">
+                {discount ? `${discount.type === "amount" ? "" : ""}${discount.value.toFixed(2)}` : "0.00"}
+              </span>
+            </div>
+          </div>
 
-          {/* Tax Button */}
-          <button
-            onClick={() => setIsTaxModalOpen(true)}
-            className="flex items-center justify-between rounded border border-zinc-200 p-2 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900 text-left"
-          >
-            <div className="flex items-center gap-1">
-              <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
-              <div>
-                <p className="text-xs text-zinc-450 dark:text-zinc-500 font-bold uppercase">Order Tax (+)</p>
-                <p className="font-mono mt-0.5 text-zinc-700 dark:text-zinc-300">{taxRate}%</p>
-              </div>
+          {/* Tax Block */}
+          <div className="flex flex-col gap-1 rounded bg-zinc-50/50 p-2 dark:bg-zinc-900/50">
+            <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 uppercase">
+              <span>Order Tax</span>
+              <button className="text-blue-500 font-extrabold">i</button>
+              <span>(+):</span>
             </div>
-            <Edit className="h-3 w-3 text-zinc-400" />
-          </button>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <button
+                onClick={() => setIsTaxModalOpen(true)}
+                className="text-zinc-700 hover:text-indigo-600 dark:text-zinc-400"
+              >
+                <Edit className="h-3.5 w-3.5" />
+              </button>
+              <span className="font-mono text-xs font-bold text-zinc-850 dark:text-zinc-200">
+                {taxRate.toFixed(2)}
+              </span>
+            </div>
+          </div>
 
-          {/* Shipping Button */}
-          <button
-            onClick={() => setIsShippingModalOpen(true)}
-            className="flex items-center justify-between rounded border border-zinc-200 p-2 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900 text-left"
-          >
-            <div className="flex items-center gap-1">
-              <Truck className="h-3.5 w-3.5 text-amber-500" />
-              <div>
-                <p className="text-xs text-zinc-450 dark:text-zinc-500 font-bold uppercase">Shipping (+)</p>
-                <p className="font-mono mt-0.5 text-zinc-700 dark:text-zinc-300">Rs {shipping.toFixed(2)}</p>
-              </div>
+          {/* Shipping Block */}
+          <div className="flex flex-col gap-1 rounded bg-zinc-50/50 p-2 dark:bg-zinc-900/50">
+            <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 uppercase">
+              <span>Shipping</span>
+              <button className="text-blue-500 font-extrabold">i</button>
+              <span>(+):</span>
             </div>
-            <Edit className="h-3 w-3 text-zinc-400" />
-          </button>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <button
+                onClick={() => setIsShippingModalOpen(true)}
+                className="text-zinc-700 hover:text-indigo-600 dark:text-zinc-400"
+              >
+                <Edit className="h-3.5 w-3.5" />
+              </button>
+              <span className="font-mono text-xs font-bold text-zinc-850 dark:text-zinc-200">
+                {shipping.toFixed(2)}
+              </span>
+            </div>
+          </div>
 
         </div>
       </div>
@@ -625,80 +693,88 @@ export function CartPanel({
         </div>
       </Modal>
 
-      {/* Edit Line Item Modal — price override + line discount, the same
-          point in the flow per design (both only make sense at checkout,
-          not as separate admin screens). */}
+      {/* Redesigned Line Item Edit Modal matching Screenshot 1 */}
       <Modal
         open={editingLineSku !== null}
         onClose={() => setEditingLineSku(null)}
-        title={`Edit ${lines.find((l) => l.sku === editingLineSku)?.name ?? "Item"}`}
+        title={lines.find((l) => l.sku === editingLineSku)?.name ?? "Edit Item"}
       >
-        <div className="flex flex-col gap-5">
-          {canOverridePrice ? (
-            <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-900 dark:bg-amber-950/10">
-              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                <ShieldAlert className="h-3.5 w-3.5" /> Price Override
-              </p>
-              <label className="text-xs font-semibold text-zinc-500">New unit price (Rs) — leave blank to use catalog price:</label>
+        <div className="flex flex-col gap-5 text-zinc-900 dark:text-zinc-100">
+          
+          {/* Unit Price */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Unit Price</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={lineOverridePrice}
+              onChange={(e) => setLineOverridePrice(e.target.value)}
+              className="h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-base outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
+            />
+          </div>
+
+          {/* Discount Type & Discount Amount side-by-side */}
+          <div className="flex gap-4">
+            <div className="flex-1 flex flex-col gap-1.5">
+              <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Discount Type</label>
+              <select
+                value={lineDiscountType === "percent" ? "percentage" : "fixed"}
+                onChange={(e) => setLineDiscountType(e.target.value === "percentage" ? "percent" : "amount")}
+                className="h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
+              >
+                <option value="fixed">Fixed</option>
+                <option value="percentage">Percentage</option>
+              </select>
+            </div>
+            <div className="flex-1 flex flex-col gap-1.5">
+              <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Discount Amount</label>
               <input
                 type="number"
                 min={0}
                 step="0.01"
-                value={lineOverridePrice}
-                onChange={(e) => setLineOverridePrice(e.target.value)}
-                placeholder="e.g. damaged item, reduced price"
-                className="h-9 w-full rounded border border-zinc-300 bg-white px-3 text-sm font-mono outline-none dark:border-zinc-700 dark:bg-zinc-900"
-              />
-              <label className="text-xs font-semibold text-zinc-500">Reason (required, audit-logged):</label>
-              <input
-                type="text"
-                value={lineOverrideReason}
-                onChange={(e) => setLineOverrideReason(e.target.value)}
-                placeholder="e.g. Scratched packaging, manager approved"
-                className="h-9 w-full rounded border border-zinc-300 bg-white px-3 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
+                value={lineDiscountValue}
+                onChange={(e) => setLineDiscountValue(e.target.value)}
+                className="h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-base outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 font-mono"
               />
             </div>
-          ) : (
-            <p className="text-xs text-zinc-400">
-              Price override requires manager/admin permission — not available on this account.
-            </p>
-          )}
+          </div>
 
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-bold text-indigo-650 flex items-center gap-1.5">
-              <Tag className="h-3.5 w-3.5" /> Line Discount
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setLineDiscountType("percent")}
-                className={`flex-1 h-9 rounded border text-sm font-semibold ${
-                  lineDiscountType === "percent" ? "border-indigo-600 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20" : "border-zinc-200"
-                }`}
-              >
-                Percentage (%)
-              </button>
-              <button
-                onClick={() => setLineDiscountType("amount")}
-                className={`flex-1 h-9 rounded border text-sm font-semibold ${
-                  lineDiscountType === "amount" ? "border-indigo-600 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20" : "border-zinc-200"
-                }`}
-              >
-                Fixed Amount (Rs)
-              </button>
-            </div>
-            <input
-              type="number"
-              min={0}
-              value={lineDiscountValue}
-              onChange={(e) => setLineDiscountValue(e.target.value)}
-              placeholder="0 — leave blank for no line discount"
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
+          {/* Description Textarea */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Description</label>
+            <textarea
+              placeholder="Add product IMEI, Serial number or other informations here."
+              value={lineDescription}
+              onChange={(e) => setLineDescriptionText(e.target.value)}
+              rows={4}
+              className="w-full rounded-md border border-zinc-300 bg-white p-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-850 dark:text-zinc-200"
             />
           </div>
 
-          <div className="flex gap-2 border-t pt-3 dark:border-zinc-800">
-            <Button onClick={handleSaveLineEdit} className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">Save</Button>
-            <Button variant="outline" onClick={() => setEditingLineSku(null)}>Cancel</Button>
+          {/* priceOverride audit reason (only visible if manager can override and price changed) */}
+          {canOverridePrice && Number(lineOverridePrice) !== (lines.find((l) => l.sku === editingLineSku)?.unitPrice ?? 0) && (
+            <div className="flex flex-col gap-1.5 bg-amber-50 dark:bg-amber-950/20 p-3 rounded-md border border-amber-250 dark:border-amber-900">
+              <label className="text-xs font-bold text-amber-700 dark:text-amber-400">Price Override Reason (Required):</label>
+              <input
+                type="text"
+                required
+                value={lineOverrideReason}
+                onChange={(e) => setLineOverrideReason(e.target.value)}
+                placeholder="Manager approval note / damage code..."
+                className="h-9 w-full rounded border border-zinc-300 bg-white px-3 text-xs outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </div>
+          )}
+
+          {/* Actions: premium dark Close button at bottom right */}
+          <div className="flex justify-end border-t pt-3 dark:border-zinc-800">
+            <button
+              onClick={handleSaveLineEdit}
+              className="h-10 rounded bg-[#1e293b] hover:bg-[#0f172a] px-6 text-sm font-bold text-white transition shadow-sm uppercase tracking-wide"
+            >
+              Close
+            </button>
           </div>
         </div>
       </Modal>

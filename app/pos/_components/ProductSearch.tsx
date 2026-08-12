@@ -118,13 +118,13 @@ export function ProductSearch({
       </div>
 
       {/* ── Filter Tabs ──────────────────────────────────────────────────── */}
-      <div className="flex gap-2">
+      <div className="flex gap-3">
         <button
           onClick={() => setActiveFilterTab(activeFilterTab === "category" ? null : "category")}
-          className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-base font-semibold transition ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-3 text-base font-bold tracking-wide transition shadow-sm ${
             activeFilterTab === "category"
-              ? "bg-indigo-600 text-white shadow-sm"
-              : "bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:text-indigo-400"
+              ? "bg-[#2563eb] text-white"
+              : "bg-[#3b82f6] text-white hover:bg-[#2563eb]"
           }`}
         >
           <Grid className="h-5 w-5" />
@@ -132,13 +132,13 @@ export function ProductSearch({
         </button>
         <button
           onClick={() => setActiveFilterTab(activeFilterTab === "brand" ? null : "brand")}
-          className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2.5 text-base font-semibold transition ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-3 text-base font-bold tracking-wide transition shadow-sm ${
             activeFilterTab === "brand"
-              ? "bg-indigo-600 text-white shadow-sm"
-              : "bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:text-indigo-400"
+              ? "bg-[#2563eb] text-white"
+              : "bg-[#3b82f6] text-white hover:bg-[#2563eb]"
           }`}
         >
-          <Tag className="h-5 w-5" />
+          <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-current text-xs font-extrabold leading-none">b</span>
           Brands
         </button>
       </div>
@@ -222,48 +222,51 @@ export function ProductSearch({
           {filteredProducts.map((p) => {
             const hasStock = p.qtyOnHand > 0;
             const added = recentlyAdded.has(p.sku);
+            
+            // Format stock unit dynamically
+            const isKowpiOrWeighed = p.sku.toLowerCase().includes("kowpi") || (p.category && p.category.toLowerCase().includes("dairy")) || p.name.toLowerCase().includes("powder");
+            const unitSuffix = isKowpiOrWeighed ? "KG" : "Pc(s)";
+            const formattedQty = p.qtyOnHand.toFixed(2);
+
             return (
               <button
                 key={p.sku}
                 onClick={() => handleAddItem(p)}
                 disabled={!hasStock}
                 aria-label={`Add ${p.name} to cart`}
-                className={`group flex flex-col rounded-lg border p-3 text-left transition ${
+                className={`group flex flex-col items-center text-center rounded-lg border p-4 transition ${
                   added
                     ? "border-green-400 bg-green-50 dark:border-green-700 dark:bg-green-950/20"
-                    : "border-zinc-200 bg-white hover:border-indigo-400 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-600"
+                    : "border-zinc-200 bg-white hover:border-[#4d69ec] hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-600"
                 } disabled:cursor-not-allowed disabled:opacity-40`}
               >
-                {/* Visual Thumbnail */}
-                <div className={`mb-2.5 flex h-20 sm:h-24 w-full items-center justify-center rounded transition ${
+                {/* Visual Thumbnail Image Box */}
+                <div className={`mb-3 flex h-16 w-16 items-center justify-center rounded-md border border-zinc-100 transition ${
                   added
                     ? "bg-green-100 text-green-600 dark:bg-green-950/30 dark:text-green-400"
-                    : "bg-zinc-100 text-zinc-400 group-hover:bg-indigo-50/50 group-hover:text-indigo-500 dark:bg-zinc-800 dark:group-hover:bg-indigo-950/20"
+                    : "bg-zinc-50 text-zinc-300 dark:bg-zinc-800"
                 }`}>
                   {added ? (
-                    <Check className="h-8 w-8" />
-                  ) : p.sku.includes("Beans") || p.sku.includes("Coffee") || p.name.includes("Espresso") || p.name.includes("Cappuccino") ? (
-                    <Coffee className="h-8 w-8" />
+                    <Check className="h-6 w-6 text-green-600" />
                   ) : (
-                    <Image className="h-8 w-8" />
+                    <Image className="h-6 w-6 text-zinc-300" />
                   )}
                 </div>
 
-                {/* Name + SKU */}
-                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-100 leading-tight line-clamp-2 min-h-[2.4rem]">
-                  {p.name}{" "}
-                  <span className="text-xs text-zinc-450 dark:text-zinc-500 font-normal">({p.sku})</span>
+                {/* Name */}
+                <p className="text-xs font-bold text-zinc-800 dark:text-zinc-100 leading-snug line-clamp-2 min-h-[2rem]">
+                  {p.name}
                 </p>
 
-                {/* Price + Stock */}
-                <div className="mt-2 flex items-center justify-between border-t border-dashed pt-2 border-zinc-200 dark:border-zinc-800">
-                  <span className="text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                    Rs {p.unitPrice.toFixed(2)}
-                  </span>
-                  <span className="text-sm font-bold text-zinc-500 dark:text-zinc-400">
-                    {hasStock ? `${p.qtyOnHand.toFixed(0)} Pc` : "Out"}
-                  </span>
-                </div>
+                {/* SKU */}
+                <p className="text-[10px] text-zinc-500 font-sans mt-1">
+                  ({p.sku})
+                </p>
+
+                {/* Stock (no price display on cards) */}
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1 font-medium">
+                  {hasStock ? `${formattedQty} ${unitSuffix} in stock` : "0.00 Pc(s) in stock"}
+                </p>
               </button>
             );
           })}

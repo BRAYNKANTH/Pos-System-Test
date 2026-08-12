@@ -16,6 +16,9 @@ export type CartLine = {
   /** Per-line discount, distinct from the cart-wide `discount` below —
    * stacks additively with any auto-applied scheduled Discount. */
   lineDiscount?: LineDiscount | null;
+  description?: string | null;
+  lotExpiry?: string | null;
+  unit?: string | null;
 };
 
 export type CartDiscount = { type: "percent" | "amount"; value: number } | null;
@@ -32,6 +35,9 @@ type CartState = {
   setQty: (sku: string, qty: number) => void;
   setLinePriceOverride: (sku: string, override: LinePriceOverride | null) => void;
   setLineDiscount: (sku: string, discount: LineDiscount | null) => void;
+  setLineDescription: (sku: string, description: string | null) => void;
+  setLineLotExpiry: (sku: string, lotExpiry: string | null) => void;
+  setLineUnit: (sku: string, unit: string | null) => void;
   setDiscount: (discount: CartDiscount) => void;
   setShipping: (shipping: number) => void;
   setCustomer: (customer: { id: string; name: string } | null) => void;
@@ -115,6 +121,18 @@ export const useCartStore = create<CartState>((set) => ({
   setLineDiscount: (sku, discount) =>
     set((state) => ({
       lines: state.lines.map((l) => (l.sku === sku ? { ...l, lineDiscount: discount } : l)),
+    })),
+  setLineDescription: (sku, description) =>
+    set((state) => ({
+      lines: state.lines.map((l) => (l.sku === sku ? { ...l, description } : l)),
+    })),
+  setLineLotExpiry: (sku, lotExpiry) =>
+    set((state) => ({
+      lines: state.lines.map((l) => (l.sku === sku ? { ...l, lotExpiry } : l)),
+    })),
+  setLineUnit: (sku, unit) =>
+    set((state) => ({
+      lines: state.lines.map((l) => (l.sku === sku ? { ...l, unit } : l)),
     })),
   clear: () =>
     set({ lines: [], discount: null, shipping: 0, customerId: null, customerName: null, heldCartId: null }),
