@@ -544,7 +544,7 @@ export function CartPanel({
                 <Edit className="h-3.5 w-3.5" />
               </button>
               <span className="font-mono text-xs font-bold text-zinc-850 dark:text-zinc-200">
-                {shipping.toFixed(2)}
+                {(Number(shipping) || 0).toFixed(2)}
               </span>
             </div>
           </div>
