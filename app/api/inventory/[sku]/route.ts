@@ -46,3 +46,40 @@ export async function DELETE(
     return apiError("DELETE_FAILED", "Failed to delete product. Please try again.", { status: 500 });
   }
 }
+
+// PATCH /api/inventory/[sku] - Update a product (e.g. unit price, purchase price)
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ sku: string }> }
+) {
+  const user = await getCurrentUser();
+  if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
+  if (!(await checkPermission(user.role, PERMISSIONS.INVENTORY_ADJUST))) {
+    return apiError("FORBIDDEN", "Not allowed to edit products", { status: 403 });
+  }
+
+  const { sku } = await params;
+  if (!sku) {
+    return apiError("INVALID_INPUT", "SKU is required", { status: 400 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const purchasePrice = body?.purchasePrice !== undefined ? Number(body.purchasePrice) : undefined;
+  const unitPrice = body?.unitPrice !== undefined ? Number(body.unitPrice) : undefined;
+  const name = typeof body?.name === "string" ? body.name : undefined;
+
+  try {
+    const updated = await prisma.inventoryItem.update({
+      where: { sku },
+      data: {
+        ...(purchasePrice !== undefined && { purchasePrice }),
+        ...(unitPrice !== undefined && { unitPrice }),
+        ...(name !== undefined && { name }),
+      },
+    });
+    return apiSuccess(updated);
+  } catch (err: any) {
+    console.error("Failed to update product", err);
+    return apiError("UPDATE_FAILED", "Failed to update product.", { status: 500 });
+  }
+}

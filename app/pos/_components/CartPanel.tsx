@@ -37,11 +37,14 @@ type Product = {
 export function CartPanel({
   products: propProducts,
   calculation,
+  taxRate = 8,
 }: {
   /** Pre-loaded product list from PosPage — avoids duplicate /api/pos/products fetch */
   products?: Product[];
   /** Pre-computed pricing from PosPage — avoids duplicate calculateCart call */
   calculation?: CartCalculation;
+  /** Default tax rate (%) fetched from the DB — used for the fallback local calculation. */
+  taxRate?: number;
 }) {
   const {
     lines,
@@ -69,7 +72,6 @@ export function CartPanel({
   // Modals state
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
-  const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
   const [isShippingModalOpen, setIsShippingModalOpen] = useState(false);
 
   // Per-line edit (price override + line discount) — one modal shared by
@@ -90,10 +92,6 @@ export function CartPanel({
   const [discountVal, setDiscountVal] = useState(discount?.value || 0);
   const [discountType, setDiscountType] = useState<"percent" | "amount">(discount?.type || "percent");
   
-  // Tax state (stored locally in POS screen, defaulting to 8% standard)
-  const [taxRate, setTaxRate] = useState(8);
-  const [taxInput, setTaxInput] = useState("8");
-
   const [shippingVal, setShippingVal] = useState(shipping || 0);
 
   const [localProducts, setLocalProducts] = useState<Product[]>([]);
@@ -243,12 +241,6 @@ export function CartPanel({
       setDiscount(null);
     }
     setIsDiscountModalOpen(false);
-  }
-
-  // Update Tax
-  function handleSaveTax() {
-    setTaxRate(Number(taxInput) || 0);
-    setIsTaxModalOpen(false);
   }
 
   // Update Shipping
@@ -523,22 +515,16 @@ export function CartPanel({
             </div>
           </div>
 
-          {/* Tax Block */}
+          {/* Tax Block — read-only, reflects the DB default tax rule */}
           <div className="flex flex-col gap-1 rounded bg-zinc-50/50 p-2 dark:bg-zinc-900/50">
             <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 uppercase">
               <span>Order Tax</span>
-              <button className="text-blue-500 font-extrabold">i</button>
+              <span className="text-blue-500 font-extrabold" title="Tax rate is set in Admin → Settings → Tax Rates">i</span>
               <span>(+):</span>
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <button
-                onClick={() => setIsTaxModalOpen(true)}
-                className="text-zinc-700 hover:text-indigo-600 dark:text-zinc-400"
-              >
-                <Edit className="h-3.5 w-3.5" />
-              </button>
               <span className="font-mono text-xs font-bold text-zinc-850 dark:text-zinc-200">
-                {taxRate.toFixed(2)}
+                {(taxRate * 100).toFixed(2)}%
               </span>
             </div>
           </div>
@@ -653,25 +639,7 @@ export function CartPanel({
         </div>
       </Modal>
 
-      {/* Edit Tax Modal */}
-      <Modal open={isTaxModalOpen} onClose={() => setIsTaxModalOpen(false)} title="Edit Tax Rate">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-500">Order Tax Rate (%):</label>
-            <input
-              type="number"
-              min={0}
-              value={taxInput}
-              onChange={(e) => setTaxInput(e.target.value)}
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
-            />
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={handleSaveTax} className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">Apply Tax</Button>
-            <Button variant="outline" onClick={() => setIsTaxModalOpen(false)}>Cancel</Button>
-          </div>
-        </div>
-      </Modal>
+
 
       {/* Edit Shipping Modal */}
       <Modal open={isShippingModalOpen} onClose={() => setIsShippingModalOpen(false)} title="Edit Shipping Cost">

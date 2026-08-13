@@ -73,11 +73,6 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
   const [productSearch, setProductSearch] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
 
-  // Save to local storage helper
-  const saveDiscounts = (updated: DiscountItem[]) => {
-    setDiscounts(updated);
-    localStorage.setItem("pos_discounts", JSON.stringify(updated));
-  };
 
   // Helper formats
   const formatDate = (isoStr: string) => {

@@ -17,7 +17,10 @@ import {
   FileText,
   User,
   Users,
-  CalendarDays
+  CalendarDays,
+  SlidersHorizontal,
+  History,
+  X
 } from "lucide-react";
 
 interface SummaryCard {
@@ -65,6 +68,38 @@ export default function ReportClient({ reportData }: ReportClientProps) {
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [itemsPerPage, setItemsPerPage] = useState(25);
+
+  // Stock Report specific state
+  const isStockReport = reportData.type === "stock";
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [filterCategory, setFilterCategory] = useState("All");
+  const [filterBrand, setFilterBrand] = useState("All");
+  const [filterLocation, setFilterLocation] = useState("All");
+  const [filterStockStatus, setFilterStockStatus] = useState("All");
+
+  // Stock history logs in Stock Report
+  const [historyItem, setHistoryItem] = useState<{ sku: string; name: string } | null>(null);
+  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const handleViewStockHistory = async (sku: string, name: string) => {
+    setHistoryItem({ sku, name });
+    setLoadingHistory(true);
+    setHistoryLogs([]);
+
+    try {
+      const res = await fetch("/api/reports/audit");
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.data)) {
+        const logs = data.data.filter((log: any) => log.sku === sku);
+        setHistoryLogs(logs);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   // Profit/Loss specific state
   const [plActiveTab, setPlActiveTab] = useState<PLTabId>("products");
@@ -130,12 +165,37 @@ export default function ReportClient({ reportData }: ReportClientProps) {
 
   // Search & Filter
   const filteredRows = useMemo(() => {
-    return activeRows.filter((row) =>
-      Object.values(row).some((val) =>
-        String(val).toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    );
-  }, [activeRows, searchQuery]);
+    let result = activeRows;
+
+    if (isStockReport) {
+      if (filterCategory !== "All") {
+        result = result.filter((row) => String(row.category).toLowerCase() === filterCategory.toLowerCase());
+      }
+      if (filterLocation !== "All") {
+        result = result.filter((row) => String(row.location).toLowerCase() === filterLocation.toLowerCase());
+      }
+      if (filterStockStatus !== "All") {
+        result = result.filter((row) => {
+          const qty = parseFloat(row.currentStock) || 0;
+          if (filterStockStatus === "Out") return qty <= 0;
+          if (filterStockStatus === "Low") {
+            // Check if quantity is low or close to 0
+            return qty > 0 && qty <= 10;
+          }
+          return true;
+        });
+      }
+    }
+
+    if (searchQuery.trim()) {
+      result = result.filter((row) =>
+        Object.values(row).some((val) =>
+          String(val).toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      );
+    }
+    return result;
+  }, [activeRows, searchQuery, isStockReport, filterCategory, filterLocation, filterStockStatus]);
 
   // Sort
   const sortedRows = useMemo(() => {
@@ -615,7 +675,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${reportData.summaryCards.length === 4 ? "lg:grid-cols-4" : "md:grid-cols-3"} gap-5`}>
         {reportData.summaryCards.map((card, i) => (
           <div key={i} className="bg-white rounded-lg border border-zinc-200 p-5 shadow-sm space-y-1">
             <span className="text-xs font-extrabold uppercase tracking-wider text-zinc-450">{card.label}</span>
@@ -624,6 +684,78 @@ export default function ReportClient({ reportData }: ReportClientProps) {
           </div>
         ))}
       </div>
+
+      {isStockReport && (
+        <div className="bg-white rounded-lg border border-zinc-200 p-5 shadow-sm space-y-4">
+          <button
+            type="button"
+            onClick={() => setFiltersOpen(!filtersOpen)}
+            className="flex items-center gap-2 text-sm font-bold text-indigo-650 hover:text-indigo-850 transition outline-none select-none"
+          >
+            <SlidersHorizontal className="h-4 w-4" /> Filters
+          </button>
+          
+          {filtersOpen && (
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-4 border-t border-zinc-150 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-bold text-zinc-650">Category:</label>
+                <select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value)}
+                  className="h-9 px-3 border border-zinc-300 rounded bg-white outline-none focus:border-indigo-500 text-zinc-700 font-medium cursor-pointer"
+                >
+                  <option value="All">All Categories</option>
+                  <option value="groceries">Groceries</option>
+                  <option value="beverages">Beverages</option>
+                  <option value="bakery">Bakery</option>
+                  <option value="snacks">Snacks</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-bold text-zinc-650">Brand:</label>
+                <select
+                  value={filterBrand}
+                  onChange={(e) => setFilterBrand(e.target.value)}
+                  className="h-9 px-3 border border-zinc-300 rounded bg-white outline-none focus:border-indigo-500 text-zinc-700 font-medium cursor-pointer"
+                >
+                  <option value="All">All Brands</option>
+                  <option value="House Blend">House Blend</option>
+                  <option value="AquaPure">AquaPure</option>
+                  <option value="Citrus Co">Citrus Co</option>
+                  <option value="CrispCo">CrispCo</option>
+                  <option value="In-House">In-House</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-bold text-zinc-650">Location:</label>
+                <select
+                  value={filterLocation}
+                  onChange={(e) => setFilterLocation(e.target.value)}
+                  className="h-9 px-3 border border-zinc-300 rounded bg-white outline-none focus:border-indigo-500 text-zinc-700 font-medium cursor-pointer"
+                >
+                  <option value="All">All Locations</option>
+                  <option value="Mektas Supers">Mektas Supers</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-bold text-zinc-650">Stock Status:</label>
+                <select
+                  value={filterStockStatus}
+                  onChange={(e) => setFilterStockStatus(e.target.value)}
+                  className="h-9 px-3 border border-zinc-300 rounded bg-white outline-none focus:border-indigo-500 text-zinc-700 font-medium cursor-pointer"
+                >
+                  <option value="All">All Stock Levels</option>
+                  <option value="Low">Low Stock Alerts</option>
+                  <option value="Out">Out of Stock</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {reportData.chartData.length > 0 && (
         <div className="bg-white rounded-lg border border-zinc-200 p-5 shadow-sm space-y-4">
@@ -707,11 +839,26 @@ export default function ReportClient({ reportData }: ReportClientProps) {
                   const values = Object.keys(row).map((key) => row[key]);
                   return (
                     <tr key={rIdx} className="hover:bg-zinc-50/40 transition">
-                      {values.map((val, cIdx) => (
-                        <td key={cIdx} className="px-4 py-3 font-semibold text-zinc-700">
-                          {String(val)}
-                        </td>
-                      ))}
+                      {values.map((val, cIdx) => {
+                        if (isStockReport && cIdx === 0) {
+                          return (
+                            <td key={cIdx} className="px-4 py-3 font-semibold text-zinc-700">
+                              <button
+                                type="button"
+                                onClick={() => handleViewStockHistory(String(val), String(row.product))}
+                                className="border border-[#3182ce] text-[#3182ce] bg-blue-50/50 hover:bg-blue-50 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition select-none shrink-0"
+                              >
+                                <History className="h-3.5 w-3.5" /> Product stock history
+                              </button>
+                            </td>
+                          );
+                        }
+                        return (
+                          <td key={cIdx} className="px-4 py-3 font-semibold text-zinc-700">
+                            {String(val)}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 })
@@ -750,6 +897,78 @@ export default function ReportClient({ reportData }: ReportClientProps) {
         )}
       </div>
 
+      {/* Stock History Audit Logs Modal */}
+      {historyItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-2xl w-full p-5 space-y-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <h3 className="font-bold text-sm text-zinc-800">Stock Adjustment Audit Log</h3>
+              <button onClick={() => setHistoryItem(null)} className="text-zinc-400 hover:text-zinc-650">
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-zinc-500">Product: <span className="font-bold text-zinc-700">{historyItem.name} ({historyItem.sku})</span></p>
+              </div>
+
+              <div className="max-h-60 overflow-y-auto border border-zinc-150 rounded">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-zinc-50 text-zinc-500 font-semibold border-b">
+                    <tr>
+                      <th className="px-3 py-2">Date</th>
+                      <th className="px-3 py-2">Qty Change</th>
+                      <th className="px-3 py-2">Reason</th>
+                      <th className="px-3 py-2">Type</th>
+                      <th className="px-3 py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y text-zinc-600 font-medium">
+                    {loadingHistory ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-zinc-400">Loading audit history...</td>
+                      </tr>
+                    ) : historyLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-zinc-400">No stock history entries found.</td>
+                      </tr>
+                    ) : (
+                      historyLogs.map((log) => (
+                        <tr key={log.id}>
+                          <td className="px-3 py-2">{new Date(log.createdAt).toLocaleString()}</td>
+                          <td className={`px-3 py-2 font-bold font-mono ${log.qtyChange > 0 ? "text-green-600" : "text-red-600"}`}>
+                            {log.qtyChange > 0 ? `+${log.qtyChange}` : log.qtyChange}
+                          </td>
+                          <td className="px-3 py-2 capitalize">{log.reasonCategory || "unspecified"}</td>
+                          <td className="px-3 py-2 capitalize">{log.type}</td>
+                          <td className="px-3 py-2">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              log.status === "applied" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
+                            }`}>
+                              {log.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t pt-3">
+              <button
+                type="button"
+                onClick={() => setHistoryItem(null)}
+                className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded text-xs font-bold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

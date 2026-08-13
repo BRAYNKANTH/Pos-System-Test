@@ -93,6 +93,25 @@ export default function InventoryListClient({
   const [newStockQty, setNewStockQty] = useState("");
   const [adjustingStock, setAdjustingStock] = useState(false);
 
+  // Custom Opening Stock fields to match user requirements
+  const [openingStockCost, setOpeningStockCost] = useState("");
+  const [openingStockExpDate, setOpeningStockExpDate] = useState("");
+  const [openingStockDate, setOpeningStockDate] = useState("");
+  const [openingStockNote, setOpeningStockNote] = useState("");
+
+  useEffect(() => {
+    if (editingStockItem) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const isFromAddProduct = urlParams.get("addStockSku") === editingStockItem.sku;
+      
+      setNewStockQty(isFromAddProduct ? "0.00" : editingStockItem.qtyOnHand.toString());
+      setOpeningStockCost(editingStockItem.purchasePrice.toFixed(2));
+      setOpeningStockExpDate("");
+      setOpeningStockDate(new Date().toISOString().slice(0, 10));
+      setOpeningStockNote("");
+    }
+  }, [editingStockItem]);
+
   // Receive Stock modal — adds to the current qty (goods received from a
   // supplier / ad-hoc restock), as opposed to "Add or edit stock" above
   // which overwrites the count as a correction. Calls the goods-receipt
@@ -242,38 +261,58 @@ export default function InventoryListClient({
     e.preventDefault();
     if (!editingStockItem) return;
 
-    const qty = parseInt(newStockQty);
+    const qty = parseFloat(newStockQty) || 0;
     if (isNaN(qty) || qty < 0) {
       alert("Please enter a valid stock level (0 or greater).");
       return;
     }
 
     const delta = qty - editingStockItem.qtyOnHand;
-    if (delta === 0) {
+    const currentPrice = parseFloat(openingStockCost) || 0;
+    const priceChanged = currentPrice !== editingStockItem.purchasePrice;
+
+    if (delta === 0 && !priceChanged) {
       setEditingStockItem(null);
       return;
     }
 
     setAdjustingStock(true);
     try {
-      const res = await fetch(`/api/inventory/${editingStockItem.sku}/adjust`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          qtyChange: delta,
-          type: "manual",
-          reasonCategory: "opening_stock",
-        }),
-      });
+      // 1. If purchase price changed, update the product purchasePrice in the database
+      if (priceChanged) {
+        const patchRes = await fetch(`/api/inventory/${editingStockItem.sku}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purchasePrice: currentPrice }),
+        });
+        if (!patchRes.ok) {
+          throw new Error("Failed to update product cost.");
+        }
+      }
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message || "Failed to adjust stock.");
+      // 2. Submit stock adjustment if the quantity changed
+      if (delta !== 0) {
+        const res = await fetch(`/api/inventory/${editingStockItem.sku}/adjust`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            qtyChange: delta,
+            type: "manual",
+            reasonCategory: "opening_stock",
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error?.message || "Failed to adjust stock.");
+        }
       }
 
       setItems(
         items.map((item) =>
-          item.sku === editingStockItem.sku ? { ...item, qtyOnHand: qty } : item
+          item.sku === editingStockItem.sku
+            ? { ...item, qtyOnHand: qty, purchasePrice: currentPrice }
+            : item
         )
       );
       triggerAlert("success", `Stock for "${editingStockItem.name}" updated to ${qty}.`);
@@ -718,49 +757,163 @@ export default function InventoryListClient({
       {/* DIALOG MODAL: Edit stock levels */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {editingStockItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-5 space-y-4">
-            <div className="flex items-center justify-between border-b pb-2">
-              <h3 className="font-bold text-sm text-zinc-800">Add / Edit Opening Stock</h3>
-              <button onClick={() => setEditingStockItem(null)} className="text-zinc-400 hover:text-zinc-600">
-                <X className="h-4.5 w-4.5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-[#f4f6f9] rounded-lg shadow-2xl p-6 border border-zinc-200 max-w-6xl w-full max-h-[90vh] overflow-y-auto space-y-4">
+            
+            {/* Header bar */}
+            <div className="flex items-center justify-between border-b pb-3">
+              <h2 className="text-xl font-bold text-zinc-950">Add Opening Stock</h2>
+              <button
+                type="button"
+                onClick={() => setEditingStockItem(null)}
+                className="text-zinc-400 hover:text-zinc-600 rounded-full p-1 hover:bg-zinc-200 transition"
+              >
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleAdjustStockSubmit} className="space-y-4">
-              <div>
-                <p className="text-xs text-zinc-500 mb-1">Product: <span className="font-bold text-zinc-700">{editingStockItem.name}</span></p>
-                <p className="text-xs text-zinc-500">Current Qty: <span className="font-bold text-zinc-700">{editingStockItem.qtyOnHand}</span></p>
+            <form onSubmit={handleAdjustStockSubmit} className="space-y-6">
+              
+              {/* Card Container */}
+              <div className="bg-white rounded border border-zinc-200 p-5 shadow-sm space-y-4 overflow-x-auto">
+                
+                {/* Location text */}
+                <div className="text-sm font-semibold text-zinc-700">
+                  Location: <span className="text-zinc-800 font-bold">Mektas Supers (BL0001)</span>
+                </div>
+
+                {/* Opening Stock Table */}
+                <div className="border border-zinc-200 rounded overflow-hidden min-w-[950px]">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-[#5ec891] text-white text-xs font-bold uppercase tracking-wider">
+                        <th className="px-4 py-3 border-r border-emerald-650">Product Name</th>
+                        <th className="px-4 py-3 border-r border-emerald-650 text-center">Quantity Remaining</th>
+                        <th className="px-4 py-3 border-r border-emerald-650 text-center">Unit Cost (Before Tax)</th>
+                        <th className="px-4 py-3 border-r border-emerald-650 text-center">Exp. Date</th>
+                        <th className="px-4 py-3 border-r border-emerald-650 text-center">Subtotal (Before Tax)</th>
+                        <th className="px-4 py-3 border-r border-emerald-650 text-center">Date</th>
+                        <th className="px-4 py-3 border-r border-emerald-650 text-center">Note</th>
+                        <th className="px-4 py-3 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 bg-white">
+                      <tr className="align-middle">
+                        {/* Product Name */}
+                        <td className="px-4 py-4 font-bold text-zinc-800 text-sm">
+                          {editingStockItem.name}
+                        </td>
+
+                        {/* Quantity Remaining */}
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-center">
+                            <div className="flex items-center border border-zinc-300 rounded overflow-hidden bg-white focus-within:border-indigo-500 transition h-9">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                required
+                                value={newStockQty}
+                                onChange={(e) => setNewStockQty(e.target.value)}
+                                className="w-20 px-2.5 text-center text-xs font-mono outline-none text-zinc-800"
+                              />
+                              <span className="bg-zinc-100 text-zinc-650 font-bold px-3 py-1.5 text-xs border-l border-zinc-200 select-none">
+                                Pc(s)
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Unit Cost (Before Tax) */}
+                        <td className="px-4 py-4 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            required
+                            value={openingStockCost}
+                            onChange={(e) => setOpeningStockCost(e.target.value)}
+                            className="h-9 w-24 rounded border border-zinc-300 px-2 text-center text-xs font-mono outline-none focus:border-indigo-500 bg-white text-zinc-800"
+                          />
+                        </td>
+
+                        {/* Exp. Date */}
+                        <td className="px-4 py-4 text-center">
+                          <input
+                            type="date"
+                            value={openingStockExpDate}
+                            onChange={(e) => setOpeningStockExpDate(e.target.value)}
+                            className="h-9 w-32 rounded border border-zinc-300 px-2 text-center text-xs outline-none focus:border-indigo-500 bg-white text-zinc-800"
+                          />
+                        </td>
+
+                        {/* Subtotal (Before Tax) */}
+                        <td className="px-4 py-4 text-center font-bold text-zinc-800 text-xs font-mono">
+                          Rs {((parseFloat(newStockQty) || 0) * (parseFloat(openingStockCost) || 0)).toFixed(2)}
+                        </td>
+
+                        {/* Date */}
+                        <td className="px-4 py-4 text-center">
+                          <input
+                            type="date"
+                            required
+                            value={openingStockDate}
+                            onChange={(e) => setOpeningStockDate(e.target.value)}
+                            className="h-9 w-32 rounded border border-zinc-300 px-2 text-center text-xs outline-none focus:border-indigo-500 bg-white text-zinc-800"
+                          />
+                        </td>
+
+                        {/* Note */}
+                        <td className="px-4 py-4">
+                          <textarea
+                            rows={1}
+                            placeholder="Add adjustment notes..."
+                            value={openingStockNote}
+                            onChange={(e) => setOpeningStockNote(e.target.value)}
+                            className="w-full rounded border border-zinc-300 p-2 text-xs outline-none focus:border-indigo-500 bg-white text-zinc-800 min-h-[36px] resize-y"
+                          />
+                        </td>
+
+                        {/* Plus Action Icon */}
+                        <td className="px-4 py-4 text-center">
+                          <button
+                            type="button"
+                            className="h-7 w-7 bg-blue-50 border border-blue-200 text-blue-600 rounded flex items-center justify-center hover:bg-blue-100 transition shadow-xs"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+
+                      {/* Summary Row */}
+                      <tr className="bg-zinc-50 font-bold">
+                        <td colSpan={4} className="px-4 py-3 text-right text-xs uppercase tracking-wider text-zinc-700">
+                          Total Amount (Exc. Tax):
+                        </td>
+                        <td colSpan={4} className="px-4 py-3 text-left text-sm font-mono text-zinc-950">
+                          Rs {((parseFloat(newStockQty) || 0) * (parseFloat(openingStockCost) || 0)).toFixed(2)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-zinc-650 mb-1.5 uppercase">New Stock Count (Pieces):</label>
-                <input
-                  type="number"
-                  min="0"
-                  required
-                  value={newStockQty}
-                  onChange={(e) => setNewStockQty(e.target.value)}
-                  className="h-9 w-full rounded border border-zinc-300 px-3 text-sm font-mono outline-none focus:border-indigo-500 bg-white"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 border-t pt-3">
-                <button
-                  type="button"
-                  onClick={() => setEditingStockItem(null)}
-                  className="px-3.5 py-1.5 rounded border text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-                >
-                  Cancel
-                </button>
+              {/* Centered Save Actions */}
+              <div className="flex flex-col items-center justify-center gap-3">
                 <button
                   type="submit"
                   disabled={adjustingStock}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
+                  className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-bold shadow-md transition-colors disabled:opacity-50 tracking-wide uppercase"
                 >
-                  {adjustingStock ? "Saving..." : "Save Stock"}
+                  {adjustingStock ? "Saving..." : "Save"}
                 </button>
+                <div className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">
+                  Apple Tech POS - v6.7 | Copyright © 2026 All rights reserved.
+                </div>
               </div>
+
             </form>
           </div>
         </div>

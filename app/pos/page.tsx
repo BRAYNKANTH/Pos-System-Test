@@ -88,11 +88,17 @@ export default function PosPage() {
   // Previously each component fetched independently, causing 2 identical
   // /api/pos/products requests on every page load.
   const [products, setProducts] = useState<any[]>([]);
+  // Tax rate fetched from the DB default rule — kept in sync with what checkout
+  // actually charges so the displayed total always matches the final amount.
+  const [taxRate, setTaxRate] = useState(0.08);
 
   useEffect(() => {
     fetch("/api/pos/products")
       .then((r) => r.json())
       .then((body) => { if (body.success) setProducts(body.data); });
+    fetch("/api/pos/tax-rate")
+      .then((r) => r.json())
+      .then((body) => { if (body.success) setTaxRate(body.data.rate); });
   }, []);
 
   // Modals state
@@ -138,7 +144,8 @@ export default function PosPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Compute pricing
+  // Compute pricing using the DB-fetched tax rate so the cart preview
+  // always matches what the server will charge at checkout.
   const calculation = useMemo(() => {
     if (lines.length === 0) {
       return { lines: [], subtotal: 0, totalDiscount: 0, tax: 0, shipping: 0, total: 0 };
@@ -151,9 +158,8 @@ export default function PosPage() {
         value: discount.value,
       });
     }
-    // Hardcoded default tax 8% standard
-    return calculateCart(cartLines, 0.08, shipping);
-  }, [lines, discount, shipping]);
+    return calculateCart(cartLines, taxRate, shipping);
+  }, [lines, discount, shipping, taxRate]);
 
   const totalPayable = calculation.total;
   const totalItems = lines.reduce((sum, l) => sum + l.qty, 0);
@@ -466,7 +472,7 @@ export default function PosPage() {
       <main className="flex-1 flex flex-col md:flex-row gap-4 p-4 min-h-0">
         {/* Left Side: Invoice Panel */}
         <div className="w-full md:w-[60%] flex flex-col min-h-0">
-          <CartPanel products={products} calculation={calculation} />
+          <CartPanel products={products} calculation={calculation} taxRate={taxRate} />
         </div>
 
         {/* Right Side: Product search grid */}

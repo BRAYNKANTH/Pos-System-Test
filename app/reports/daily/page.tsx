@@ -48,6 +48,12 @@ export default async function DailyReportPage({
           defaultValue={start.toISOString().slice(0, 10)}
           className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm dark:border-zinc-800"
         />
+        <button
+          type="submit"
+          className="h-9 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+        >
+          Go
+        </button>
       </form>
 
       <div className="grid grid-cols-3 gap-3 text-center text-sm">

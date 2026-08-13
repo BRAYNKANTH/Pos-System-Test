@@ -491,34 +491,111 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
     case "stock": {
       title = "Stock Report";
       description = "Real-time list of inventory items and current quantities on hand.";
-      headers = ["SKU", "Product Name", "Category", "Unit Price", "Quantity On Hand", "Stock Value"];
 
       const inventory = await prisma.inventoryItem.findMany({
-        orderBy: { qtyOnHand: "asc" },
+        orderBy: { name: "asc" },
       });
 
-      rows = inventory.map((i) => ({
-        sku: i.sku,
-        name: i.name,
-        category: i.category || "—",
-        price: currencyFmt(Number(i.unitPrice)),
-        qty: i.qtyOnHand,
-        value: currencyFmt(Number(i.unitPrice) * i.qtyOnHand),
-      }));
+      // Fetch transaction items, stock transfers, and adjustments
+      const transactionItems = await prisma.transactionItem.findMany({
+        where: { transaction: { status: "completed" } },
+      });
+      const transfers = await prisma.stockTransfer.findMany();
+      const adjustments = await prisma.stockAdjustment.findMany({
+        where: { status: "applied" },
+      });
 
-      const totalStockVal = inventory.reduce((acc, i) => acc + Number(i.unitPrice) * i.qtyOnHand, 0);
-      const lowStockCount = inventory.filter((i) => i.qtyOnHand <= i.lowStockThreshold).length;
+      // Sum quantities per SKU
+      const soldQtyMap = new Map<string, number>();
+      for (const item of transactionItems) {
+        soldQtyMap.set(item.sku, (soldQtyMap.get(item.sku) || 0) + item.qty);
+      }
+
+      const transferredQtyMap = new Map<string, number>();
+      for (const t of transfers) {
+        transferredQtyMap.set(t.sku, (transferredQtyMap.get(t.sku) || 0) + t.qty);
+      }
+
+      const adjustedQtyMap = new Map<string, number>();
+      for (const a of adjustments) {
+        adjustedQtyMap.set(a.sku, (adjustedQtyMap.get(a.sku) || 0) + Math.abs(a.qtyChange));
+      }
+
+      let totalPurchaseVal = 0;
+      let totalSaleVal = 0;
+
+      rows = inventory.map((i) => {
+        const qty = i.qtyOnHand;
+        const purchasePrice = Number(i.purchasePrice) > 0 ? Number(i.purchasePrice) : Number(i.unitPrice) * 0.8;
+        const sellingPrice = Number(i.unitPrice);
+        
+        const valPurchase = qty * purchasePrice;
+        const valSale = qty * sellingPrice;
+        const potentialProfit = valSale - valPurchase;
+
+        totalPurchaseVal += valPurchase;
+        totalSaleVal += valSale;
+
+        const sold = soldQtyMap.get(i.sku) || 0;
+        const transferred = transferredQtyMap.get(i.sku) || 0;
+        const adjusted = adjustedQtyMap.get(i.sku) || 0;
+
+        const unitLabel = i.name.toLowerCase().includes("seeni") || i.name.toLowerCase().includes("paruppu") ? "KG" : "Pc(s)";
+
+        return {
+          action: i.sku,
+          sku: i.sku,
+          product: i.name,
+          variation: "",
+          category: i.category || "groceries",
+          location: "Mektas Supers",
+          unitSellingPrice: currencyFmt(sellingPrice),
+          currentStock: `${qty.toFixed(2)} ${unitLabel}`,
+          currentStockValuePurchase: currencyFmt(valPurchase),
+          currentStockValueSale: currencyFmt(valSale),
+          potentialProfit: currencyFmt(potentialProfit),
+          totalUnitSold: `${sold.toFixed(2)} ${unitLabel}`,
+          totalUnitTransferred: `${transferred.toFixed(2)} ${unitLabel}`,
+          totalUnitAdjusted: `${adjusted.toFixed(2)} ${unitLabel}`,
+          customField1: "",
+          customField2: "",
+          customField3: "",
+          customField4: "",
+        };
+      });
+
+      const totalPotentialProfit = totalSaleVal - totalPurchaseVal;
+      const profitMarginPercent = totalSaleVal > 0 ? (totalPotentialProfit / totalSaleVal) * 100 : 0;
 
       summaryCards = [
-        { label: "Total Catalog Items", value: inventory.length.toString(), desc: "Products registered" },
-        { label: "Total Stock Value", value: currencyFmt(totalStockVal), desc: "Asset value of quantities on hand" },
-        { label: "Low Stock Items", value: lowStockCount.toString(), desc: "Quantities below threshold limit" },
+        { label: "Closing stock (By purchase price)", value: currencyFmt(totalPurchaseVal) },
+        { label: "Closing stock (By sale price)", value: currencyFmt(totalSaleVal) },
+        { label: "Potential profit", value: currencyFmt(totalPotentialProfit) },
+        { label: "Profit Margin %", value: `${profitMarginPercent.toFixed(2)}` },
       ];
 
-      chartData = inventory.slice(0, 8).map((i) => ({
-        name: i.name,
-        value: i.qtyOnHand,
-      }));
+      headers = [
+        "Action",
+        "SKU",
+        "Product",
+        "Variation",
+        "Category",
+        "Location",
+        "Unit Selling Price",
+        "Current stock",
+        "Current Stock Value (By purchase price)",
+        "Current Stock Value (By sale price)",
+        "Potential profit",
+        "Total unit sold",
+        "Total Unit Transferred",
+        "Total Unit Adjusted",
+        "Custom Field1",
+        "Custom Field2",
+        "Custom Field3",
+        "Custom Field4",
+      ];
+
+      chartData = [];
       break;
     }
 
