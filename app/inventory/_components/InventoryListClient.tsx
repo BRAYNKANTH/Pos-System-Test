@@ -151,7 +151,11 @@ export default function InventoryListClient({
       const foundItem = items.find(i => i.sku === addStockSku);
       if (foundItem) {
         setEditingStockItem(foundItem);
-        setNewStockQty(foundItem.qtyOnHand.toString());
+        // Clear the query parameter from the browser URL address bar immediately
+        // so that updating local items state doesn't re-trigger this modal.
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", "/inventory");
+        }
       }
     }
   }, [items]);
