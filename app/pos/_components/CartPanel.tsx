@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useCartStore } from "@/lib/pos/cart-store";
-import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import React, { useEffect, useMemo, useState } from "react";
+import { useCartStore, type CartLine } from "@/lib/pos/cart-store";
 import { calculateCart, applyDiscount, applyLineOverridesAndDiscounts, type CartCalculation } from "@/lib/pos/pricing";
+import { Modal } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
 import {
   User,
   Plus,
@@ -18,6 +18,10 @@ import {
   UserPlus,
   Tag,
   ShieldAlert,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
+  SlidersHorizontal,
 } from "lucide-react";
 
 type Customer = {
@@ -39,11 +43,8 @@ export function CartPanel({
   calculation,
   taxRate = 8,
 }: {
-  /** Pre-loaded product list from PosPage — avoids duplicate /api/pos/products fetch */
   products?: Product[];
-  /** Pre-computed pricing from PosPage — avoids duplicate calculateCart call */
   calculation?: CartCalculation;
-  /** Default tax rate (%) fetched from the DB — used for the fallback local calculation. */
   taxRate?: number;
 }) {
   const {
@@ -69,36 +70,28 @@ export function CartPanel({
   const [productQuery, setProductQuery] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
 
-  // Modals state
+  // Accordion state for line items (expanded SKU)
+  const [expandedSku, setExpandedSku] = useState<string | null>(null);
+
+  // Undo delete tracking
+  const [lastDeletedItem, setLastDeletedItem] = useState<{ item: CartLine; index: number } | null>(null);
+
+  // Inline Discount & Shipping edit toggles
+  const [editingDiscountInline, setEditingDiscountInline] = useState(false);
+  const [editingShippingInline, setEditingShippingInline] = useState(false);
+  const [discountVal, setDiscountVal] = useState(discount?.value || 0);
+  const [discountType, setDiscountType] = useState<"percent" | "amount">(discount?.type || "percent");
+  const [shippingVal, setShippingVal] = useState(shipping || 0);
+
+  // Customer quick-create modal
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
-  const [isShippingModalOpen, setIsShippingModalOpen] = useState(false);
-
-  // Per-line edit (price override + line discount) — one modal shared by
-  // every row, keyed by which sku is currently being edited.
-  const [editingLineSku, setEditingLineSku] = useState<string | null>(null);
-  const [canOverridePrice, setCanOverridePrice] = useState(false);
-  const [lineOverridePrice, setLineOverridePrice] = useState("");
-  const [lineOverrideReason, setLineOverrideReason] = useState("");
-  const [lineDiscountType, setLineDiscountType] = useState<"percent" | "amount">("percent");
-  const [lineDiscountValue, setLineDiscountValue] = useState("");
-  const [lineDescription, setLineDescriptionText] = useState("");
-
-  // Modal input values
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
 
-  const [discountVal, setDiscountVal] = useState(discount?.value || 0);
-  const [discountType, setDiscountType] = useState<"percent" | "amount">(discount?.type || "percent");
-  
-  const [shippingVal, setShippingVal] = useState(shipping || 0);
-
+  const [canOverridePrice, setCanOverridePrice] = useState(false);
   const [localProducts, setLocalProducts] = useState<Product[]>([]);
 
-  // Whether this cashier is allowed to override a line's price — checked
-  // once on mount; the control below is hidden entirely if not (checkout
-  // also re-checks server-side, this is just UI, not the real gate).
   useEffect(() => {
     fetch("/api/pos/permissions")
       .then((r) => r.json())
@@ -107,7 +100,6 @@ export function CartPanel({
       });
   }, []);
 
-  // Fetch Customers and fallback products if not supplied by parent
   useEffect(() => {
     fetch("/api/customers")
       .then((r) => r.json())
@@ -137,10 +129,8 @@ export function CartPanel({
     );
   }, [products, productQuery]);
 
-  // Use parent-supplied calculation if available; fall back to local
-  // computation only if CartPanel is rendered without a parent-supplied value.
   const localCalculation = useMemo(() => {
-    if (calculation) return calculation; // parent already computed this
+    if (calculation) return calculation;
     if (lines.length === 0) {
       return { lines: [], subtotal: 0, totalDiscount: 0, tax: 0, total: 0 };
     }
@@ -155,10 +145,24 @@ export function CartPanel({
     return calculateCart(cartLines, taxRate / 100, shipping);
   }, [calculation, lines, discount, taxRate, shipping]);
 
-  // Alias for template use
   const calc = localCalculation;
 
-  // Create new customer quick action
+  // Remove line with undo support
+  function handleRemoveItemWithUndo(line: CartLine, index: number) {
+    setLastDeletedItem({ item: line, index });
+    removeItem(line.sku);
+    setTimeout(() => {
+      setLastDeletedItem((prev) => (prev?.item.sku === line.sku ? null : prev));
+    }, 6000);
+  }
+
+  function handleUndoDelete() {
+    if (!lastDeletedItem) return;
+    addItem(lastDeletedItem.item);
+    setLastDeletedItem(null);
+  }
+
+  // Create new customer
   async function handleAddCustomer(e: React.FormEvent) {
     e.preventDefault();
     if (!newCustomerName) return;
@@ -187,78 +191,33 @@ export function CartPanel({
     }
   }
 
-  // Open the per-line edit modal (price override + line discount),
-  // pre-filled with that line's current values if it already has any.
-  function openLineEdit(sku: string) {
-    const line = lines.find((l) => l.sku === sku);
-    setLineOverridePrice(line?.priceOverride ? String(line.priceOverride.newPrice) : (line ? String(line.unitPrice) : ""));
-    setLineOverrideReason(line?.priceOverride?.reason ?? "");
-    setLineDiscountType(line?.lineDiscount?.type ?? "percent");
-    setLineDiscountValue(line?.lineDiscount ? String(line.lineDiscount.value) : "0.00");
-    setLineDescriptionText(line?.description ?? "");
-    setEditingLineSku(sku);
-  }
-
-  function handleSaveLineEdit() {
-    if (!editingLineSku) return;
-    const line = lines.find((l) => l.sku === editingLineSku);
-    if (!line) return;
-
-    const newPrice = Number(lineOverridePrice);
-    const hasPriceChanged = newPrice !== line.unitPrice;
-
-    // Price override requires price override permission OR if cashier doesn't have it, we just set custom note
-    if (canOverridePrice && (hasPriceChanged || lineDescription.trim())) {
-      setLinePriceOverride(editingLineSku, {
-        newPrice: hasPriceChanged ? newPrice : line.unitPrice,
-        reason: lineOverrideReason.trim() || lineDescription.trim() || "Description/custom edit details"
-      });
-    } else if (lineDescription.trim()) {
-      // cashiers can save description notes as a priceOverride with the current price to audit log it
-      setLinePriceOverride(editingLineSku, {
-        newPrice: line.unitPrice,
-        reason: lineDescription.trim()
-      });
-    } else {
-      setLinePriceOverride(editingLineSku, null);
-    }
-
-    if (lineDiscountValue && Number(lineDiscountValue) > 0) {
-      setLineDiscount(editingLineSku, { type: lineDiscountType, value: Number(lineDiscountValue) });
-    } else {
-      setLineDiscount(editingLineSku, null);
-    }
-
-    setLineDescription(editingLineSku, lineDescription.trim() || null);
-    setEditingLineSku(null);
-  }
-
-  // Update Discount
-  function handleSaveDiscount() {
+  // Save inline discount
+  function applyInlineDiscount() {
     if (discountVal > 0) {
-      setDiscount({ type: discountType, value: discountVal });
+      setDiscount({ type: discountType, value: Number(discountVal) });
     } else {
       setDiscount(null);
     }
-    setIsDiscountModalOpen(false);
+    setEditingDiscountInline(false);
   }
 
-  // Update Shipping
-  function handleSaveShipping() {
-    setShipping(shippingVal);
-    setIsShippingModalOpen(false);
+  // Save inline shipping
+  function applyInlineShipping() {
+    setShipping(Number(shippingVal) || 0);
+    setEditingShippingInline(false);
   }
 
   return (
-    <div className="flex flex-1 flex-col rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 min-h-0">
+    <div className="flex flex-1 flex-col rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs dark:border-zinc-800 dark:bg-zinc-950 min-h-0">
       
-      {/* Customer Selector dropdown + Add Customer button */}
-      <div className="mb-3 flex items-center gap-2">
+      {/* ── Top Bar: Customer Selector + Add Customer ──────────────────────── */}
+      <div className="mb-2.5 flex items-center gap-2">
         <div className="relative flex-1">
-          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-zinc-400">
-            <User className="h-4 w-4" />
+          <div className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-zinc-400">
+            <User className="h-4 w-4 text-indigo-500" />
           </div>
           <select
+            id="pos-customer-select"
             value={customerId || ""}
             onChange={(e) => {
               const selected = customers.find((c) => c.id === e.target.value);
@@ -268,9 +227,9 @@ export function CartPanel({
                 setCustomer(null);
               }
             }}
-            className="h-9 w-full rounded border border-zinc-300 bg-transparent pl-9 pr-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+            className="h-9 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-8 pr-3 text-xs font-semibold outline-none focus:border-indigo-500 focus:bg-white dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
           >
-            <option value="">Walk-In Customer</option>
+            <option value="">Walk-In Customer (Default)</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} {c.phone ? `(${c.phone})` : ""}
@@ -280,29 +239,28 @@ export function CartPanel({
         </div>
         <button
           onClick={() => setIsCustomerModalOpen(true)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 transition"
-          title="Add Customer"
+          className="flex h-9 px-2.5 items-center gap-1 shrink-0 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 text-xs font-bold transition"
+          title="Add New Customer"
         >
-          <UserPlus className="h-4.5 w-4.5" />
+          <UserPlus className="h-4 w-4" />
+          <span>New</span>
         </button>
       </div>
 
-      {/* Barcode / SKU / Name Search input */}
-      <div className="relative mb-3 flex gap-2">
+      {/* ── Quick Product Search & Scan ────────────────────────────────────── */}
+      <div className="relative mb-2.5 flex gap-1.5">
         <div className="relative flex-1">
-          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-zinc-400">
-            <Search className="h-4 w-4" />
-          </div>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
           <input
             type="text"
-            placeholder="Enter Product name / SKU / Scan bar code"
+            placeholder="Scan SKU / Barcode / Search..."
             value={productQuery}
             onChange={(e) => {
               setProductQuery(e.target.value);
               setShowProductDropdown(true);
             }}
             onFocus={() => setShowProductDropdown(true)}
-            className="h-9 w-full rounded border border-zinc-300 bg-transparent pl-9 pr-10 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700"
+            className="h-9 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-9 pr-8 text-xs font-medium outline-none focus:border-indigo-500 focus:bg-white dark:border-zinc-700 dark:bg-zinc-900"
           />
           {productQuery && (
             <button
@@ -310,22 +268,16 @@ export function CartPanel({
                 setProductQuery("");
                 setShowProductDropdown(false);
               }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-650"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>
-        <button
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-700 transition"
-          title="Search / Scan"
-        >
-          <Plus className="h-4.5 w-4.5" />
-        </button>
 
-        {/* Local Search Dropdown */}
+        {/* Dropdown Results */}
         {showProductDropdown && filteredProducts.length > 0 && (
-          <div className="absolute left-0 right-0 z-20 mt-10 max-h-60 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="absolute left-0 right-0 top-10 z-30 max-h-56 overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
             {filteredProducts.map((p) => (
               <button
                 key={p.sku}
@@ -335,15 +287,15 @@ export function CartPanel({
                   setShowProductDropdown(false);
                 }}
                 disabled={p.qtyOnHand <= 0}
-                className="flex w-full items-center justify-between px-4 py-2 text-left text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs hover:bg-indigo-50/60 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed border-b border-zinc-50 dark:border-zinc-800/50 last:border-0"
               >
                 <div>
-                  <p className="font-semibold text-zinc-800 dark:text-zinc-200">{p.name}</p>
-                  <p className="text-xs text-zinc-450 dark:text-zinc-500">{p.sku}</p>
+                  <p className="font-bold text-zinc-800 dark:text-zinc-200">{p.name}</p>
+                  <p className="text-[10px] font-mono text-zinc-400">{p.sku}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono font-medium">Rs {p.unitPrice.toFixed(2)}</p>
-                  <p className="text-xs text-zinc-400">{p.qtyOnHand} in stock</p>
+                  <p className="font-mono font-bold text-indigo-600 dark:text-indigo-400">Rs {p.unitPrice.toFixed(2)}</p>
+                  <p className="text-[10px] text-zinc-400">{p.qtyOnHand} in stock</p>
                 </div>
               </button>
             ))}
@@ -351,129 +303,200 @@ export function CartPanel({
         )}
       </div>
 
-      {/* Cart Items List */}
-      <div className="flex-1 min-h-[280px] overflow-y-auto border border-zinc-150 rounded-md mb-3 dark:border-zinc-800 scrollbar-thin">
-        <table className="w-full text-sm table-fixed">
-          <thead className="bg-zinc-50 sticky top-0 text-left text-sm font-bold text-zinc-500 border-b dark:bg-zinc-900 dark:border-zinc-800 z-10">
+      {/* ── Undo Toast Notification ────────────────────────────────────────── */}
+      {lastDeletedItem && (
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-zinc-900 text-white px-3 py-1.5 text-xs animate-slide-up shadow-md">
+          <span className="truncate max-w-[200px]">Removed {lastDeletedItem.item.name}</span>
+          <button
+            onClick={handleUndoDelete}
+            className="flex items-center gap-1 font-bold text-amber-300 hover:text-amber-200 underline ml-2 shrink-0"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Undo
+          </button>
+        </div>
+      )}
+
+      {/* ── Cart Items Table ──────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-lg mb-2.5 dark:border-zinc-800 scrollbar-thin min-h-[160px]">
+        <table className="w-full text-xs table-fixed">
+          <thead className="bg-zinc-50 sticky top-0 text-left font-bold text-zinc-500 border-b border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 z-10 select-none">
             <tr>
-              <th className="px-4 py-3 w-[45%]">Product <span className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 text-[10px]">i</span></th>
-              <th className="px-4 py-3 text-center w-[25%]">Quantity</th>
-              <th className="px-4 py-3 text-right w-[20%]">Subtotal</th>
-              <th className="px-4 py-3 text-center w-[10%]">X</th>
+              <th className="px-3 py-2 w-[48%]">Item</th>
+              <th className="px-1 py-2 text-center w-[24%]">Qty</th>
+              <th className="px-2 py-2 text-right w-[20%]">Total</th>
+              <th className="px-1 py-2 text-center w-[8%]"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
             {lines.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-12 text-center text-zinc-450 text-sm">
-                  No products added to the invoice yet.
+                <td colSpan={4} className="px-4 py-16 text-center text-zinc-400">
+                  <p className="text-xs font-semibold">Cart is currently empty</p>
+                  <p className="text-[11px] text-zinc-400 mt-1">Scan an item or select from the product catalog</p>
                 </td>
               </tr>
             ) : (
-              lines.map((line) => {
+              lines.map((line, idx) => {
                 const lineCalc = calc.lines.find((l) => l.sku === line.sku);
                 const sub = lineCalc ? lineCalc.lineSubtotal : line.qty * line.unitPrice;
+                const isExpanded = expandedSku === line.sku;
 
                 return (
-                  <tr key={line.sku} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 align-top">
-                    {/* Product Column */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-start gap-1 flex-wrap">
-                        <span className="font-bold text-zinc-800 dark:text-zinc-100 break-words max-w-[85%]">{line.name}</span>
-                        {/* Info Button trigger */}
-                        <button
-                          onClick={() => openLineEdit(line.sku)}
-                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 text-[9px] font-bold"
-                          title="Click to override price, add discounts, or serial numbers"
-                        >
-                          i
-                        </button>
-                      </div>
-                      
-                      {line.priceOverride ? (
-                        <p className="text-xs font-mono mt-0.5">
-                          <span className="text-zinc-400 line-through mr-1">Rs {line.unitPrice.toFixed(2)}</span>
-                          <span className="text-amber-600 font-bold">Rs {line.priceOverride.newPrice.toFixed(2)}</span>
-                        </p>
-                      ) : (
-                        <p className="text-xs text-zinc-450 dark:text-zinc-500 font-mono mt-0.5">Rs {line.unitPrice.toFixed(2)}</p>
-                      )}
-
-                      {/* Display descriptions if added */}
-                      {line.description && (
-                        <p className="text-[10px] text-zinc-550 dark:text-zinc-400 font-mono bg-zinc-50 dark:bg-zinc-900 border px-1.5 py-0.5 rounded mt-1 italic break-words">
-                          {line.description}
-                        </p>
-                      )}
-
-                      {/* Lot & Expiry Dropdown Selector */}
-                      <div className="mt-2">
-                        <select
-                          value={line.lotExpiry || ""}
-                          onChange={(e) => setLineLotExpiry(line.sku, e.target.value || null)}
-                          className="h-7 w-full max-w-[160px] rounded border border-zinc-200 bg-transparent px-2 text-xs outline-none focus:border-indigo-400 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-650 dark:text-zinc-350"
-                        >
-                          <option value="">Lot & Expiry</option>
-                          <option value="Lot A - Exp 2026-12-31">Lot A - Exp 2026-12-31</option>
-                          <option value="Lot B - Exp 2027-06-30">Lot B - Exp 2027-06-30</option>
-                        </select>
-                      </div>
-                    </td>
-
-                    {/* Quantity Column */}
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col items-center">
-                        <div className="flex items-center justify-center gap-1">
+                  <React.Fragment key={line.sku}>
+                    <tr className={`hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40 transition ${isExpanded ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""}`}>
+                      {/* Product Name & SKU */}
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => setQty(line.sku, line.qty - 1)}
-                            className="flex h-6 w-6 items-center justify-center rounded border border-zinc-300 hover:bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                            onClick={() => setExpandedSku(isExpanded ? null : line.sku)}
+                            className="text-zinc-400 hover:text-indigo-600 transition"
+                            title="Edit price override, discount, or serial note"
                           >
-                            <Minus className="h-3 w-3" />
+                            {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-indigo-600" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          </button>
+                          <div className="truncate">
+                            <p className="font-bold text-zinc-900 dark:text-zinc-100 truncate">{line.name}</p>
+                            <p className="text-[10px] font-mono text-zinc-400 tabular-nums">
+                              {line.priceOverride ? (
+                                <>
+                                  <span className="line-through mr-1">Rs {line.unitPrice.toFixed(2)}</span>
+                                  <span className="text-amber-600 font-bold">Rs {line.priceOverride.newPrice.toFixed(2)}</span>
+                                </>
+                              ) : (
+                                `Rs ${line.unitPrice.toFixed(2)}`
+                              )}
+                              {line.lineDiscount && (
+                                <span className="ml-1 text-emerald-600 font-semibold">
+                                  (-{line.lineDiscount.value}{line.lineDiscount.type === "percent" ? "%" : "Rs"})
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Quantity Stepper */}
+                      <td className="px-1 py-2 text-center">
+                        <div className="inline-flex items-center border border-zinc-200 rounded-md bg-white dark:border-zinc-700 dark:bg-zinc-900 shadow-2xs">
+                          <button
+                            onClick={() => setQty(line.sku, Math.max(0, line.qty - 1))}
+                            className="h-6 w-5 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-l transition"
+                          >
+                            <Minus className="h-2.5 w-2.5" />
                           </button>
                           <input
                             type="number"
-                            step="0.01"
-                            value={line.qty.toFixed(2)}
-                            onChange={(e) => setQty(line.sku, parseFloat(e.target.value) || 0)}
-                            className="h-6 w-12 border border-zinc-300 rounded text-center text-xs font-mono outline-none dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
+                            min="0"
+                            step="1"
+                            value={line.qty}
+                            onChange={(e) => setQty(line.sku, Math.max(0, parseFloat(e.target.value) || 0))}
+                            className="h-6 w-8 text-center text-xs font-bold font-mono outline-none dark:bg-zinc-900 text-zinc-900 dark:text-white tabular-nums"
                           />
                           <button
                             onClick={() => setQty(line.sku, line.qty + 1)}
-                            className="flex h-6 w-6 items-center justify-center rounded border border-zinc-300 hover:bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                            className="h-6 w-5 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-r transition"
                           >
-                            <Plus className="h-3 w-3" />
+                            <Plus className="h-2.5 w-2.5" />
                           </button>
                         </div>
-                        {/* Pieces / unit select dropdown */}
-                        <div className="mt-1 w-full flex justify-center">
-                          <select
-                            value={line.unit || "Pieces"}
-                            onChange={(e) => setLineUnit(line.sku, e.target.value)}
-                            className="h-7 w-[76px] rounded border border-zinc-200 bg-transparent px-1 text-center text-[10px] outline-none focus:border-indigo-400 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-650 dark:text-zinc-350"
-                          >
-                            <option value="Pieces">Pieces</option>
-                            <option value="KG">KG</option>
-                            <option value="Box">Box</option>
-                          </select>
-                        </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Subtotal Column */}
-                    <td className="px-4 py-3 text-right font-mono font-bold text-zinc-800 dark:text-zinc-100">
-                      Rs {sub.toFixed(2)}
-                    </td>
+                      {/* Subtotal */}
+                      <td className="px-2 py-2 text-right font-mono font-extrabold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                        Rs {sub.toFixed(2)}
+                      </td>
 
-                    {/* Delete Column */}
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => removeItem(line.sku)}
-                        className="text-red-500 hover:text-red-700 transition"
-                      >
-                        <X className="h-5 w-5 mx-auto font-bold" />
-                      </button>
-                    </td>
-                  </tr>
+                      {/* Delete */}
+                      <td className="px-1 py-2 text-center">
+                        <button
+                          onClick={() => handleRemoveItemWithUndo(line, idx)}
+                          className="h-6 w-6 flex items-center justify-center rounded text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                          title="Remove item"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* ── Expandable Row for Line Discounts, Price Overrides, Notes ── */}
+                    {isExpanded && (
+                      <tr className="bg-indigo-50/40 dark:bg-indigo-950/20 border-b border-indigo-100 dark:border-indigo-900/40">
+                        <td colSpan={4} className="p-3">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px]">
+                            
+                            {/* Price Override */}
+                            <div>
+                              <label className="font-bold text-zinc-600 dark:text-zinc-400 block mb-1">Unit Price Override (Rs):</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                defaultValue={line.priceOverride?.newPrice ?? line.unitPrice}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  if (!isNaN(val) && val !== line.unitPrice) {
+                                    setLinePriceOverride(line.sku, { newPrice: val, reason: "Cashier adjustment" });
+                                  } else if (val === line.unitPrice) {
+                                    setLinePriceOverride(line.sku, null);
+                                  }
+                                }}
+                                className="h-7 w-full rounded border border-zinc-300 bg-white px-2 font-mono text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                              />
+                            </div>
+
+                            {/* Line Discount */}
+                            <div>
+                              <label className="font-bold text-zinc-600 dark:text-zinc-400 block mb-1">Line Discount (% or Rs):</label>
+                              <div className="flex gap-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  placeholder="0"
+                                  defaultValue={line.lineDiscount?.value ?? ""}
+                                  onBlur={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (val > 0) {
+                                      setLineDiscount(line.sku, { type: line.lineDiscount?.type || "percent", value: val });
+                                    } else {
+                                      setLineDiscount(line.sku, null);
+                                    }
+                                  }}
+                                  className="h-7 flex-1 rounded border border-zinc-300 bg-white px-2 font-mono text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                />
+                                <select
+                                  value={line.lineDiscount?.type || "percent"}
+                                  onChange={(e) => {
+                                    const type = e.target.value as "percent" | "amount";
+                                    if (line.lineDiscount) {
+                                      setLineDiscount(line.sku, { ...line.lineDiscount, type });
+                                    }
+                                  }}
+                                  className="h-7 rounded border border-zinc-300 bg-white px-1.5 text-xs outline-none dark:border-zinc-700 dark:bg-zinc-900"
+                                >
+                                  <option value="percent">%</option>
+                                  <option value="amount">Rs</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* Serial / Notes */}
+                            <div>
+                              <label className="font-bold text-zinc-600 dark:text-zinc-400 block mb-1">IMEI / Serial / Note:</label>
+                              <input
+                                type="text"
+                                placeholder="Serial / custom note..."
+                                defaultValue={line.description ?? ""}
+                                onBlur={(e) => setLineDescription(line.sku, e.target.value.trim() || null)}
+                                className="h-7 w-full rounded border border-zinc-300 bg-white px-2 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                              />
+                            </div>
+
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })
             )}
@@ -481,270 +504,148 @@ export function CartPanel({
         </table>
       </div>
 
-      {/* Cart Summary Totals Block (restructured to match Screenshot 2) */}
-      <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
+      {/* ── Cart Totals Summary (Inline Editable Controls) ─────────────────── */}
+      <div className="border-t border-zinc-200 pt-2.5 dark:border-zinc-800 select-none">
         
-        {/* Row 1: Items & Total display */}
-        <div className="flex items-center justify-between text-base font-extrabold text-zinc-900 dark:text-white mb-4">
-          <span>Items: {lines.reduce((acc, l) => acc + l.qty, 0).toFixed(2)}</span>
+        {/* Row 1: Subtotal, Items count, Grand Total */}
+        <div className="flex items-center justify-between text-sm font-extrabold text-zinc-900 dark:text-white mb-2">
+          <span className="text-zinc-500 font-semibold text-xs">
+            Items: <span className="text-zinc-900 dark:text-white font-mono">{lines.reduce((acc, l) => acc + l.qty, 0)}</span>
+          </span>
           <span>
-            Total: <span className="font-mono">{calc.total.toFixed(2)}</span>
+            Total: <span className="font-mono text-base text-indigo-700 dark:text-indigo-400 tabular-nums">Rs {calc.total.toFixed(2)}</span>
           </span>
         </div>
 
-        {/* Row 2: Discount, Tax, Shipping buttons in clean text blocks with info & edit icons */}
-        <div className="grid grid-cols-3 gap-2 border-t border-dashed pt-3 border-zinc-200 dark:border-zinc-800">
+        {/* Row 2: Inline Quick Controls (Discount, Tax, Shipping) */}
+        <div className="grid grid-cols-3 gap-1.5 text-[11px]">
           
-          {/* Discount Block */}
-          <div className="flex flex-col gap-1 rounded bg-zinc-50/50 p-2 dark:bg-zinc-900/50">
-            <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 uppercase">
+          {/* Inline Discount Control */}
+          <div className="rounded-lg bg-zinc-50 p-2 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
               <span>Discount</span>
-              <button className="text-blue-500 font-extrabold">i</button>
-              <span>(-):</span>
-            </div>
-            <div className="flex items-center gap-1.5 mt-0.5">
               <button
-                onClick={() => setIsDiscountModalOpen(true)}
-                className="text-zinc-700 hover:text-indigo-600 dark:text-zinc-400"
+                onClick={() => setEditingDiscountInline(!editingDiscountInline)}
+                className="text-indigo-600 hover:text-indigo-700 text-[10px] font-bold"
               >
-                <Edit className="h-3.5 w-3.5" />
+                {editingDiscountInline ? "Done" : "Edit"}
               </button>
-              <span className="font-mono text-xs font-bold text-zinc-850 dark:text-zinc-200">
-                {discount ? `${discount.type === "amount" ? "" : ""}${discount.value.toFixed(2)}` : "0.00"}
-              </span>
             </div>
+            {editingDiscountInline ? (
+              <div className="flex items-center gap-1 mt-1">
+                <input
+                  type="number"
+                  min="0"
+                  value={discountVal}
+                  onChange={(e) => setDiscountVal(Number(e.target.value) || 0)}
+                  onBlur={applyInlineDiscount}
+                  className="h-6 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-xs outline-none dark:bg-zinc-800"
+                />
+                <button
+                  onClick={() => {
+                    const nextType = discountType === "percent" ? "amount" : "percent";
+                    setDiscountType(nextType);
+                    if (discountVal > 0) setDiscount({ type: nextType, value: discountVal });
+                  }}
+                  className="h-6 px-1.5 rounded bg-zinc-200 font-bold text-[10px] text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                  {discountType === "percent" ? "%" : "Rs"}
+                </button>
+              </div>
+            ) : (
+              <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
+                {discount ? `${discount.value}${discount.type === "percent" ? "%" : " Rs"}` : "0.00"}
+              </span>
+            )}
           </div>
 
-          {/* Tax Block — read-only, reflects the DB default tax rule */}
-          <div className="flex flex-col gap-1 rounded bg-zinc-50/50 p-2 dark:bg-zinc-900/50">
-            <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 uppercase">
-              <span>Order Tax</span>
-              <span className="text-blue-500 font-extrabold" title="Tax rate is set in Admin → Settings → Tax Rates">i</span>
-              <span>(+):</span>
+          {/* Tax info */}
+          <div className="rounded-lg bg-zinc-50 p-2 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
+              <span>Tax Rate</span>
+              <span className="text-[10px] text-zinc-400 font-normal">DB</span>
             </div>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="font-mono text-xs font-bold text-zinc-850 dark:text-zinc-200">
-                {(taxRate * 100).toFixed(2)}%
-              </span>
-            </div>
+            <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
+              {(taxRate * 100).toFixed(1)}%
+            </span>
           </div>
 
-          {/* Shipping Block */}
-          <div className="flex flex-col gap-1 rounded bg-zinc-50/50 p-2 dark:bg-zinc-900/50">
-            <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 uppercase">
+          {/* Inline Shipping Control */}
+          <div className="rounded-lg bg-zinc-50 p-2 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
               <span>Shipping</span>
-              <button className="text-blue-500 font-extrabold">i</button>
-              <span>(+):</span>
-            </div>
-            <div className="flex items-center gap-1.5 mt-0.5">
               <button
-                onClick={() => setIsShippingModalOpen(true)}
-                className="text-zinc-700 hover:text-indigo-600 dark:text-zinc-400"
+                onClick={() => setEditingShippingInline(!editingShippingInline)}
+                className="text-indigo-600 hover:text-indigo-700 text-[10px] font-bold"
               >
-                <Edit className="h-3.5 w-3.5" />
+                {editingShippingInline ? "Done" : "Edit"}
               </button>
-              <span className="font-mono text-xs font-bold text-zinc-850 dark:text-zinc-200">
-                {(Number(shipping) || 0).toFixed(2)}
-              </span>
             </div>
+            {editingShippingInline ? (
+              <div className="flex items-center gap-1 mt-1">
+                <input
+                  type="number"
+                  min="0"
+                  value={shippingVal}
+                  onChange={(e) => setShippingVal(Number(e.target.value) || 0)}
+                  onBlur={applyInlineShipping}
+                  className="h-6 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-xs outline-none dark:bg-zinc-800"
+                />
+              </div>
+            ) : (
+              <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
+                Rs {shipping ? Number(shipping).toFixed(2) : "0.00"}
+              </span>
+            )}
           </div>
 
         </div>
       </div>
 
-      {/* ────────────────────────────────────────────────────────────────── */}
-      {/* POPUP MODALS FOR SETTINGS */}
-      {/* ────────────────────────────────────────────────────────────────── */}
-
-      {/* Add Customer Modal */}
-      <Modal open={isCustomerModalOpen} onClose={() => setIsCustomerModalOpen(false)} title="Add Customer">
+      {/* ── Quick Add Customer Modal ───────────────────────────────────────── */}
+      <Modal open={isCustomerModalOpen} onClose={() => setIsCustomerModalOpen(false)} title="Quick Add Customer">
         <form onSubmit={handleAddCustomer} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-500">Name:*</label>
+            <label className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Full Name:*</label>
             <input
               required
+              autoFocus
               type="text"
-              placeholder="Customer Name"
+              placeholder="e.g. Kasun Silva"
               value={newCustomerName}
               onChange={(e) => setNewCustomerName(e.target.value)}
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
+              className="h-9 w-full rounded-lg border border-zinc-300 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700"
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-500">Email:</label>
+            <label className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Phone Number:</label>
+            <input
+              type="tel"
+              placeholder="077XXXXXXX"
+              value={newCustomerPhone}
+              onChange={(e) => setNewCustomerPhone(e.target.value)}
+              className="h-9 w-full rounded-lg border border-zinc-300 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Email Address:</label>
             <input
               type="email"
               placeholder="customer@email.com"
               value={newCustomerEmail}
               onChange={(e) => setNewCustomerEmail(e.target.value)}
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-500">Phone:</label>
-            <input
-              type="tel"
-              placeholder="077XXXXXXXX"
-              value={newCustomerPhone}
-              onChange={(e) => setNewCustomerPhone(e.target.value)}
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
+              className="h-9 w-full rounded-lg border border-zinc-300 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700"
             />
           </div>
           <div className="mt-3 flex gap-2">
-            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">Save Customer</Button>
-            <Button type="button" variant="outline" onClick={() => setIsCustomerModalOpen(false)}>Cancel</Button>
+            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1 font-bold">
+              Save Customer
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setIsCustomerModalOpen(false)}>
+              Cancel
+            </Button>
           </div>
         </form>
-      </Modal>
-
-      {/* Edit Discount Modal */}
-      <Modal open={isDiscountModalOpen} onClose={() => setIsDiscountModalOpen(false)} title="Edit Discount">
-        <div className="flex flex-col gap-4">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setDiscountType("percent")}
-              className={`flex-1 h-9 rounded border text-sm font-semibold capitalize ${
-                discountType === "percent"
-                  ? "border-indigo-600 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20"
-                  : "border-zinc-200"
-              }`}
-            >
-              Percentage (%)
-            </button>
-            <button
-              onClick={() => setDiscountType("amount")}
-              className={`flex-1 h-9 rounded border text-sm font-semibold capitalize ${
-                discountType === "amount"
-                  ? "border-indigo-600 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/20"
-                  : "border-zinc-200"
-              }`}
-            >
-              Fixed Amount (Rs)
-            </button>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-500">Discount Value:</label>
-            <input
-              type="number"
-              min={0}
-              value={discountVal}
-              onChange={(e) => setDiscountVal(Number(e.target.value) || 0)}
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
-            />
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={handleSaveDiscount} className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">Apply Discount</Button>
-            <Button variant="outline" onClick={() => setIsDiscountModalOpen(false)}>Cancel</Button>
-          </div>
-        </div>
-      </Modal>
-
-
-
-      {/* Edit Shipping Modal */}
-      <Modal open={isShippingModalOpen} onClose={() => setIsShippingModalOpen(false)} title="Edit Shipping Cost">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-zinc-500">Shipping Charge (Rs):</label>
-            <input
-              type="number"
-              min={0}
-              value={shippingVal}
-              onChange={(e) => setShippingVal(Number(e.target.value) || 0)}
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
-            />
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={handleSaveShipping} className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">Apply Shipping</Button>
-            <Button variant="outline" onClick={() => setIsShippingModalOpen(false)}>Cancel</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Redesigned Line Item Edit Modal matching Screenshot 1 */}
-      <Modal
-        open={editingLineSku !== null}
-        onClose={() => setEditingLineSku(null)}
-        title={lines.find((l) => l.sku === editingLineSku)?.name ?? "Edit Item"}
-      >
-        <div className="flex flex-col gap-5 text-zinc-900 dark:text-zinc-100">
-          
-          {/* Unit Price */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Unit Price</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={lineOverridePrice}
-              onChange={(e) => setLineOverridePrice(e.target.value)}
-              className="h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-base outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
-            />
-          </div>
-
-          {/* Discount Type & Discount Amount side-by-side */}
-          <div className="flex gap-4">
-            <div className="flex-1 flex flex-col gap-1.5">
-              <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Discount Type</label>
-              <select
-                value={lineDiscountType === "percent" ? "percentage" : "fixed"}
-                onChange={(e) => setLineDiscountType(e.target.value === "percentage" ? "percent" : "amount")}
-                className="h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
-              >
-                <option value="fixed">Fixed</option>
-                <option value="percentage">Percentage</option>
-              </select>
-            </div>
-            <div className="flex-1 flex flex-col gap-1.5">
-              <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Discount Amount</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={lineDiscountValue}
-                onChange={(e) => setLineDiscountValue(e.target.value)}
-                className="h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-base outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 font-mono"
-              />
-            </div>
-          </div>
-
-          {/* Description Textarea */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Description</label>
-            <textarea
-              placeholder="Add product IMEI, Serial number or other informations here."
-              value={lineDescription}
-              onChange={(e) => setLineDescriptionText(e.target.value)}
-              rows={4}
-              className="w-full rounded-md border border-zinc-300 bg-white p-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-850 dark:text-zinc-200"
-            />
-          </div>
-
-          {/* priceOverride audit reason (only visible if manager can override and price changed) */}
-          {canOverridePrice && Number(lineOverridePrice) !== (lines.find((l) => l.sku === editingLineSku)?.unitPrice ?? 0) && (
-            <div className="flex flex-col gap-1.5 bg-amber-50 dark:bg-amber-950/20 p-3 rounded-md border border-amber-250 dark:border-amber-900">
-              <label className="text-xs font-bold text-amber-700 dark:text-amber-400">Price Override Reason (Required):</label>
-              <input
-                type="text"
-                required
-                value={lineOverrideReason}
-                onChange={(e) => setLineOverrideReason(e.target.value)}
-                placeholder="Manager approval note / damage code..."
-                className="h-9 w-full rounded border border-zinc-300 bg-white px-3 text-xs outline-none dark:border-zinc-700 dark:bg-zinc-900"
-              />
-            </div>
-          )}
-
-          {/* Actions: premium dark Close button at bottom right */}
-          <div className="flex justify-end border-t pt-3 dark:border-zinc-800">
-            <button
-              onClick={handleSaveLineEdit}
-              className="h-10 rounded bg-[#1e293b] hover:bg-[#0f172a] px-6 text-sm font-bold text-white transition shadow-sm uppercase tracking-wide"
-            >
-              Close
-            </button>
-          </div>
-        </div>
       </Modal>
 
     </div>

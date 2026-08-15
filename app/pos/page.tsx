@@ -349,34 +349,113 @@ export default function PosPage() {
     }
   }
 
+  // Global POS hardware keyboard shortcuts listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when payment modal or other top modals are open
+      if (isPaymentOpen || isRecentModalOpen || isCalculatorOpen || isExpenseOpen) {
+        if (e.key === "Escape") {
+          setIsPaymentOpen(false);
+          setIsRecentModalOpen(false);
+          setIsCalculatorOpen(false);
+          setIsExpenseOpen(false);
+        }
+        return;
+      }
+
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      const isInputActive = activeTag === "input" || activeTag === "textarea" || activeTag === "select";
+
+      // F1: Focus Barcode / Search Input
+      if (e.key === "F1") {
+        e.preventDefault();
+        const searchInput = document.getElementById("pos-catalog-search-input") as HTMLInputElement | null;
+        searchInput?.focus();
+        searchInput?.select();
+      }
+
+      // F2: Focus Customer Selector
+      else if (e.key === "F2") {
+        e.preventDefault();
+        const custSelect = document.getElementById("pos-customer-select") as HTMLSelectElement | null;
+        custSelect?.focus();
+      }
+
+      // F4: Open Payment Modal
+      else if (e.key === "F4") {
+        e.preventDefault();
+        if (lines.length > 0) {
+          setIsPaymentOpen(true);
+        } else {
+          triggerAlert("error", "Cart is empty. Add products before payment.");
+        }
+      }
+
+      // Spacebar: Open Payment Modal when not typing
+      else if (e.key === " " && !isInputActive && lines.length > 0) {
+        e.preventDefault();
+        setIsPaymentOpen(true);
+      }
+
+      // F8: Hold / Suspend Sale
+      else if (e.key === "F8") {
+        e.preventDefault();
+        if (lines.length > 0) {
+          handleHoldCart("draft");
+        }
+      }
+
+      // Esc: Clear Search or Defocus
+      else if (e.key === "Escape") {
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPaymentOpen, isRecentModalOpen, isCalculatorOpen, isExpenseOpen, lines]);
+
+  // Cart Clear Confirmation Guard
+  function handleCancelCart() {
+    if (lines.length === 0) {
+      triggerAlert("success", "Cart is already empty.");
+      return;
+    }
+    if (window.confirm("Are you sure you want to cancel and clear all items from the current transaction?")) {
+      clear();
+      triggerAlert("success", "Transaction cancelled.");
+    }
+  }
+
   return (
-    <div className="flex flex-col h-[calc(100vh-56px)] bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-56px)] bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 overflow-hidden select-none">
       
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* TOP HEADER BAR */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      <header className="flex flex-wrap items-center justify-between gap-3 bg-white px-5 py-3 border-b shadow-sm dark:bg-zinc-950 dark:border-zinc-800">
+      <header className="flex flex-wrap items-center justify-between gap-3 bg-white px-4 py-2.5 border-b shadow-xs dark:bg-zinc-950 dark:border-zinc-800 shrink-0">
         
         {/* Left: Location & Time */}
-        <div className="flex items-center gap-4">
-          <Link href="/" className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3.5 py-1.5 text-sm font-bold hover:bg-zinc-100 dark:border-zinc-850 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 transition">
-            <Home className="h-4 w-4 text-indigo-500" />
+        <div className="flex items-center gap-3">
+          <Link href="/" className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-bold hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 transition">
+            <Home className="h-3.5 w-3.5 text-indigo-600" />
             Dashboard
           </Link>
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-            <MapPin className="h-4.5 w-4.5 text-indigo-500" />
-            <span>Location: <span className="text-zinc-900 dark:text-white">Mektas Supers</span></span>
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+            <MapPin className="h-3.5 w-3.5 text-indigo-500" />
+            <span>Store: <strong className="text-zinc-900 dark:text-white">Mektas Supers</strong></span>
           </div>
-          <div className="flex items-center gap-1.5 rounded-md bg-indigo-50 px-3 py-1.5 text-sm font-bold text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-400">
-            <Clock className="h-3.5 w-3.5" />
-            <span>{currentTime || "06-08-2026 06:56"}</span>
+          <div className="flex items-center gap-1.5 rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400">
+            <Clock className="h-3 w-3" />
+            <span className="font-mono">{currentTime || "06-08-2026 06:56"}</span>
           </div>
           <RegisterStatusBar />
         </div>
 
         {/* Center/Right: Actions Bar */}
         <div className="flex items-center gap-1.5">
-          {/* Recent Trans History */}
           <button
             onClick={() => {
               fetchRecentTransactions();
@@ -384,22 +463,20 @@ export default function PosPage() {
               fetchQuotations();
               setIsRecentModalOpen(true);
             }}
-            className="flex h-9 w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
             title="Recent Completed Sales"
           >
-            <History className="h-4 w-4" />
+            <History className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
           </button>
           
-          {/* calculator */}
           <button
             onClick={() => setIsCalculatorOpen(true)}
-            className="flex h-9 w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
             title="Calculator"
           >
-            <Calculator className="h-4 w-4" />
+            <Calculator className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
           </button>
 
-          {/* Held Carts / Resume Drawer button */}
           <button
             onClick={() => {
               fetchRecentTransactions();
@@ -408,31 +485,25 @@ export default function PosPage() {
               setActiveTxTab("draft");
               setIsRecentModalOpen(true);
             }}
-            className="flex h-9 w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
             title="Resumable Held Sales"
           >
-            <Briefcase className="h-4 w-4" />
+            <Briefcase className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
           </button>
 
-          {/* Hard reset */}
           <button
-            onClick={() => {
-              clear();
-              triggerAlert("success", "Cart cleared.");
-            }}
-            className="flex h-9 w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition"
-            title="Hard reset cart"
+            onClick={handleCancelCart}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
+            title="Clear Cart"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
           </button>
 
-          {/* Divider */}
-          <span className="mx-1 h-6 border-l border-zinc-350 dark:border-zinc-800"></span>
+          <span className="mx-1 h-5 border-l border-zinc-200 dark:border-zinc-800"></span>
 
-          {/* Add Expense button */}
           <button
             onClick={() => setIsExpenseOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3.5 py-1.5 text-sm font-bold hover:bg-zinc-100 dark:border-zinc-850 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-bold hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition shadow-2xs"
           >
             <Plus className="h-3.5 w-3.5 text-indigo-500" />
             Add Expense
@@ -440,51 +511,36 @@ export default function PosPage() {
         </div>
       </header>
 
-      {/* ────────────────────────────────────────────────────────────────── */}
-      {/* ALERT BANNERS */}
-      {/* ────────────────────────────────────────────────────────────────── */}
-      {/* ── Fixed toast notification (bottom-right) — NO layout shift ────────
-          Previously this was an inline block between the header and main,
-          causing every cart action to shift the entire page content up/down.
-          Fixed-position overlay eliminates the CLS entirely. */}
+      {/* ── Fixed Toast Notification ───────────────────────────────────────── */}
       {alertMsg && (
-        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-xl px-5 py-3.5 text-sm font-semibold shadow-xl ring-1 animate-slide-up ${
+        <div className={`fixed bottom-14 right-6 z-50 flex items-center gap-2.5 rounded-xl px-4 py-3 text-xs font-bold shadow-xl animate-slide-up ${
           alertMsg.type === "success"
-            ? "bg-green-600 text-white ring-green-700/50"
-            : "bg-red-600 text-white ring-red-700/50"
+            ? "bg-emerald-600 text-white"
+            : "bg-red-600 text-white"
         }`}>
-          {alertMsg.type === "success" ? (
-            <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-            </svg>
-          ) : (
-            <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-            </svg>
-          )}
           <span>{alertMsg.text}</span>
         </div>
       )}
 
       {/* ────────────────────────────────────────────────────────────────── */}
-      {/* MAIN LAYOUT SPLIT */}
+      {/* MAIN WORKSPACE SPLIT (38% Cart / 62% Product Catalog Grid)       */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col md:flex-row gap-4 p-4 min-h-0">
-        {/* Left Side: Invoice Panel */}
-        <div className="w-full md:w-[60%] flex flex-col min-h-0">
+      <main className="flex-1 flex flex-col lg:flex-row gap-3 p-3 min-h-0 overflow-hidden">
+        {/* Left: Invoice Cart Panel (38% on Large/Laptop) */}
+        <div className="w-full lg:w-[38%] flex flex-col min-h-0 shrink-0">
           <CartPanel products={products} calculation={calculation} taxRate={taxRate} />
         </div>
 
-        {/* Right Side: Product search grid */}
-        <div className="w-full md:w-[40%] flex flex-col min-h-0">
+        {/* Right: Product Catalog Grid (62% on Large/Laptop) */}
+        <div className="w-full lg:w-[62%] flex flex-col min-h-0 flex-1">
           <ProductSearch products={products} />
         </div>
       </main>
 
       {/* ────────────────────────────────────────────────────────────────── */}
-      {/* FOOTER ACTION BAR */}
+      {/* FOOTER ACTION BAR & KEYBOARD SHORTCUTS HINT                        */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      <footer className="sticky bottom-0 bg-white border-t p-4 flex flex-wrap items-center justify-between gap-4 shadow-md dark:bg-zinc-950 dark:border-zinc-800">
+      <footer className="sticky bottom-0 bg-white border-t border-zinc-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-md dark:bg-zinc-950 dark:border-zinc-800 shrink-0">
         
         {/* Left Actions */}
         <div className="flex items-center flex-wrap gap-2">
@@ -495,58 +551,67 @@ export default function PosPage() {
               fetchQuotations();
               setIsRecentModalOpen(true);
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3.5 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 transition"
           >
             <History className="h-3.5 w-3.5" />
-            Recent Transactions
+            Recent Sales
           </button>
           
           <button
             onClick={() => handleHoldCart("draft")}
-            className="inline-flex items-center gap-1.5 rounded-lg border px-3.5 py-2 text-sm font-bold hover:bg-zinc-50 text-zinc-650 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-400 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition"
+            title="Hold Sale (F8)"
           >
-            <FileText className="h-3.5 w-3.5 text-zinc-500" />
-            Draft
+            <FileText className="h-3.5 w-3.5 text-zinc-400" />
+            Hold (F8)
           </button>
 
           <button
             onClick={() => handleHoldCart("suspended")}
-            className="inline-flex items-center gap-1.5 rounded-lg border px-3.5 py-2 text-sm font-bold hover:bg-zinc-50 text-zinc-650 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-400 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition"
           >
-            <Pause className="h-3.5 w-3.5 text-zinc-500" />
+            <Pause className="h-3.5 w-3.5 text-zinc-400" />
             Suspend
           </button>
+
+          {/* Keyboard Shortcuts Pill Rail */}
+          <div className="hidden xl:flex items-center gap-2 pl-3 border-l border-zinc-200 dark:border-zinc-800 text-[10px] text-zinc-400 font-mono">
+            <span><kbd className="rounded bg-zinc-100 px-1 py-0.5 border text-zinc-700 font-bold dark:bg-zinc-800 dark:text-zinc-300">F1</kbd> Search</span>
+            <span><kbd className="rounded bg-zinc-100 px-1 py-0.5 border text-zinc-700 font-bold dark:bg-zinc-800 dark:text-zinc-300">F2</kbd> Customer</span>
+            <span><kbd className="rounded bg-zinc-100 px-1 py-0.5 border text-zinc-700 font-bold dark:bg-zinc-800 dark:text-zinc-300">F4/Space</kbd> Pay</span>
+            <span><kbd className="rounded bg-zinc-100 px-1 py-0.5 border text-zinc-700 font-bold dark:bg-zinc-800 dark:text-zinc-300">F8</kbd> Hold</span>
+            <span><kbd className="rounded bg-zinc-100 px-1 py-0.5 border text-zinc-700 font-bold dark:bg-zinc-800 dark:text-zinc-300">Esc</kbd> Close</span>
+          </div>
         </div>
 
         {/* Center & Right Actions */}
-        <div className="flex items-center flex-wrap gap-4">
+        <div className="flex items-center flex-wrap gap-3">
           
           {/* Cancel Button */}
           <button
-            onClick={() => {
-              clear();
-              triggerAlert("success", "Transaction cancelled.");
-            }}
-            className="h-10 px-5 rounded-lg bg-red-600 hover:bg-red-700 text-sm font-bold text-white transition flex items-center gap-1"
+            onClick={handleCancelCart}
+            className="h-10 px-4 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-xs font-bold text-red-600 transition flex items-center gap-1 dark:border-red-900 dark:bg-red-950/20"
           >
-            <XCircle className="h-4.5 w-4.5" />
-            Cancel
+            <XCircle className="h-4 w-4" />
+            Cancel Sale
           </button>
 
           {/* Total Payable display */}
-          <div className="text-zinc-800 dark:text-zinc-200">
-            <span className="text-sm uppercase font-bold text-zinc-450 dark:text-zinc-500">Total Payable:</span>
-            <p className="text-xl font-extrabold font-mono leading-none mt-0.5">Rs {totalPayable.toFixed(2)}</p>
+          <div className="text-right pr-1">
+            <span className="text-[10px] uppercase font-bold text-zinc-400 dark:text-zinc-500 block">Total Payable:</span>
+            <p className="text-xl font-black font-mono leading-none text-zinc-900 dark:text-white tabular-nums">
+              Rs {totalPayable.toFixed(2)}
+            </p>
           </div>
 
           {/* Pay Button */}
           <button
             disabled={lines.length === 0}
             onClick={() => setIsPaymentOpen(true)}
-            className="h-10 px-6 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-sm font-bold text-white transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="h-11 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-extrabold text-white transition flex items-center gap-2 shadow-md disabled:opacity-40 disabled:cursor-not-allowed select-none tracking-wide"
           >
             <CreditCard className="h-4.5 w-4.5" />
-            {lines.length > 0 ? `Pay Rs ${totalPayable.toFixed(2)}` : "Pay"}
+            {lines.length > 0 ? `Pay Now (Space / F4)` : "Pay"}
           </button>
         </div>
 
