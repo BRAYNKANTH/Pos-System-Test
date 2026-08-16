@@ -168,7 +168,7 @@ export function SuppliersClient({
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
+                  className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-750 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
                 >
                   {submitting ? "Saving..." : "Save"}
                 </button>

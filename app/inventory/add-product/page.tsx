@@ -383,7 +383,7 @@ export default function AddProductPage() {
                     placeholder="Describe your product here..."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    className="w-full p-4 text-sm outline-none resize-none bg-white"
+                    className="w-full p-4 text-sm outline-none focus:bg-indigo-50/20 resize-none bg-white"
                   />
                 </div>
               </div>
@@ -591,7 +591,7 @@ export default function AddProductPage() {
             <button
               onClick={() => handleSave("save_stock")}
               disabled={loading}
-              className="bg-indigo-700 hover:bg-indigo-800 text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-sm transition disabled:opacity-50"
+              className="bg-indigo-650 hover:bg-indigo-750 text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-sm transition disabled:opacity-50"
             >
               Save & Add Opening Stock
             </button>

@@ -215,7 +215,7 @@ export function SalesReturnsClient({
                     <button
                       type="submit"
                       disabled={lookingUp}
-                      className="px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold flex items-center gap-1.5 disabled:opacity-50"
+                      className="px-4 bg-indigo-650 hover:bg-indigo-750 text-white rounded text-xs font-bold flex items-center gap-1.5 disabled:opacity-50"
                     >
                       <Search className="h-3.5 w-3.5" /> {lookingUp ? "..." : "Find"}
                     </button>
@@ -370,7 +370,7 @@ export function SalesReturnsClient({
                     type="submit"
                     disabled={submitting}
                     className={`px-4 py-1.5 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50 ${
-                      isExchange ? "bg-indigo-600 hover:bg-indigo-700" : "bg-red-600 hover:bg-red-700"
+                      isExchange ? "bg-indigo-650 hover:bg-indigo-750" : "bg-red-600 hover:bg-red-700"
                     }`}
                   >
                     {submitting ? "Processing..." : isExchange ? "Process Exchange" : "Process Return"}

@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma, TRANSACTION_OPTIONS } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/writeAuditLog";
+import { creditDefaultLocation } from "@/lib/inventory/locationStock";
 
 export class BillNotFoundError extends Error {
   constructor() {
@@ -45,7 +46,8 @@ export async function submitChangeRequest(params: {
  * original" rule, the original Transaction row is never mutated — the
  * approved change becomes an audit-logged, Zoho-synced adjustment
  * (credit note) layered on top:
- *   - "void"      → bill + transaction marked voided
+ *   - "void"      → bill + transaction marked voided, stock restored for
+ *                   every line (same as Quick Void)
  *   - "refund"    → bill marked refunded
  *   - "correction"→ bill stays locked; the correction is the audit trail
  *                   + linked Zoho credit note, not a rewrite of the sale
@@ -54,7 +56,7 @@ export async function approveChangeRequest(requestId: string, approverId: string
   return prisma.$transaction(async (tx) => {
     const request = await tx.billChangeRequest.findUnique({
       where: { id: requestId },
-      include: { bill: { include: { transaction: true } } },
+      include: { bill: { include: { transaction: { include: { items: true } } } } },
     });
     if (!request) throw new Error("Change request not found");
     if (request.status !== "pending") throw new ChangeRequestNotPendingError();
@@ -70,6 +72,27 @@ export async function approveChangeRequest(requestId: string, approverId: string
         where: { id: request.bill.transactionId },
         data: { status: "voided" },
       });
+
+      // Restore stock for every line, matching Quick Void's behavior — a
+      // void is a void regardless of which approval path it took.
+      if (request.bill.transaction.status !== "voided") {
+        for (const item of request.bill.transaction.items) {
+          await tx.inventoryItem.update({
+            where: { sku: item.sku },
+            data: { qtyOnHand: { increment: item.qty } },
+          });
+          await tx.stockAdjustment.create({
+            data: {
+              sku: item.sku,
+              qtyChange: item.qty,
+              type: "automated",
+              reasonCategory: "sale_void",
+              status: "applied",
+            },
+          });
+          await creditDefaultLocation(tx, item.sku, item.qty);
+        }
+      }
     } else if (request.type === "refund") {
       await tx.bill.update({ where: { id: request.billId }, data: { status: "refunded" } });
     }

@@ -92,6 +92,25 @@ export default function PosPage() {
   // actually charges so the displayed total always matches the final amount.
   const [taxRate, setTaxRate] = useState(0.08);
 
+  // This page locks itself to exactly the remaining viewport height below
+  // the global app header (see components/Header.tsx#app-header) so its
+  // own cart/product panels can scroll internally instead of the whole
+  // page scrolling — standard for a till screen. That used to assume the
+  // header was a hardcoded 56px; it's actually ~35px, and would silently
+  // change again if the header's content ever changes (e.g. a long user
+  // name wrapping) or the offline banner above it starts rendering again.
+  // Measuring it for real avoids both a wasted gap and a future overflow.
+  const [headerOffsetPx, setHeaderOffsetPx] = useState(56);
+  useEffect(() => {
+    function measure() {
+      const header = document.getElementById("app-header");
+      if (header) setHeaderOffsetPx(header.getBoundingClientRect().height);
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
   useEffect(() => {
     fetch("/api/pos/products")
       .then((r) => r.json())
@@ -126,6 +145,8 @@ export default function PosPage() {
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("rent");
   const [expenseNote, setExpenseNote] = useState("");
+  const [savingExpense, setSavingExpense] = useState(false);
+  const [holdingCart, setHoldingCart] = useState(false);
 
   // Notification alerts
   const [alertMsg, setAlertMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -192,7 +213,9 @@ export default function PosPage() {
       triggerAlert("error", "Cart cannot be empty to hold");
       return;
     }
+    if (holdingCart) return;
 
+    setHoldingCart(true);
     try {
       const res = await fetch("/api/pos/held-carts", {
         method: "POST",
@@ -215,6 +238,8 @@ export default function PosPage() {
       }
     } catch (err) {
       triggerAlert("error", "Failed to contact server. Checking offline capability.");
+    } finally {
+      setHoldingCart(false);
     }
   }
 
@@ -323,8 +348,9 @@ export default function PosPage() {
   // back by the Expense Report.
   async function handleAddExpense(e: React.FormEvent) {
     e.preventDefault();
-    if (!expenseAmount) return;
+    if (!expenseAmount || savingExpense) return;
 
+    setSavingExpense(true);
     try {
       const res = await fetch("/api/expenses", {
         method: "POST",
@@ -346,6 +372,8 @@ export default function PosPage() {
       }
     } catch (err) {
       triggerAlert("error", "Failed to contact server.");
+    } finally {
+      setSavingExpense(false);
     }
   }
 
@@ -430,7 +458,10 @@ export default function PosPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-56px)] bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 overflow-hidden select-none">
+    <div
+      className="flex flex-col bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 overflow-hidden select-none"
+      style={{ height: `calc(100dvh - ${headerOffsetPx}px)` }}
+    >
       
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* TOP HEADER BAR */}
@@ -559,16 +590,18 @@ export default function PosPage() {
           
           <button
             onClick={() => handleHoldCart("draft")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition"
+            disabled={holdingCart}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
             title="Hold Sale (F8)"
           >
             <FileText className="h-3.5 w-3.5 text-zinc-400" />
-            Hold (F8)
+            {holdingCart ? "Holding..." : "Hold (F8)"}
           </button>
 
           <button
             onClick={() => handleHoldCart("suspended")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition"
+            disabled={holdingCart}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Pause className="h-3.5 w-3.5 text-zinc-400" />
             Suspend
@@ -608,7 +641,7 @@ export default function PosPage() {
           <button
             disabled={lines.length === 0}
             onClick={() => setIsPaymentOpen(true)}
-            className="h-11 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-extrabold text-white transition flex items-center gap-2 shadow-md disabled:opacity-40 disabled:cursor-not-allowed select-none tracking-wide"
+            className="h-11 px-6 rounded-xl bg-indigo-650 hover:bg-indigo-750 text-sm font-extrabold text-white transition flex items-center gap-2 shadow-md disabled:opacity-40 disabled:cursor-not-allowed select-none tracking-wide"
           >
             <CreditCard className="h-4.5 w-4.5" />
             {lines.length > 0 ? `Pay Now (Space / F4)` : "Pay"}
@@ -850,7 +883,7 @@ export default function PosPage() {
               placeholder="0.00"
               value={expenseAmount}
               onChange={(e) => setExpenseAmount(e.target.value)}
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700"
+              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700"
             />
           </div>
           <div className="flex flex-col gap-1">
@@ -858,7 +891,7 @@ export default function PosPage() {
             <select
               value={expenseCategory}
               onChange={(e) => setExpenseCategory(e.target.value)}
-              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              className="h-9 w-full rounded border border-zinc-300 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
             >
               <option value="rent">Rent/Utilities</option>
               <option value="salaries">Staff Salaries</option>
@@ -877,8 +910,8 @@ export default function PosPage() {
             />
           </div>
           <div className="mt-3 flex gap-2">
-            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1">Save Expense</Button>
-            <Button type="button" variant="outline" onClick={() => setIsExpenseOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={savingExpense} className="bg-indigo-650 hover:bg-indigo-750 text-white flex-1">{savingExpense ? "Saving..." : "Save Expense"}</Button>
+            <Button type="button" variant="outline" disabled={savingExpense} onClick={() => setIsExpenseOpen(false)}>Cancel</Button>
           </div>
         </form>
       </Modal>

@@ -49,23 +49,23 @@ export function AddCustomerForm() {
         placeholder="Name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+        className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
       />
       <input
         placeholder="Email (optional)"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+        className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
       />
       <input
         placeholder="Phone (optional)"
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
-        className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+        className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
       />
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={submitting || !name}>
-          Save
+          {submitting ? "Saving..." : "Save"}
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
           Cancel

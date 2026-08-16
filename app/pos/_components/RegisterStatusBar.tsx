@@ -279,7 +279,7 @@ export function RegisterStatusBar() {
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
+                className="w-full py-2 bg-indigo-650 hover:bg-indigo-750 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
               >
                 {busy ? "Saving..." : "Confirm"}
               </button>

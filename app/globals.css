@@ -87,17 +87,23 @@ body {
 
 /* ─── Page transition animations ────────────────────────────────────────────
    PageTransition component applies these classes when the route changes.
-   Enter: content fades in + rises 8px. Exit: content fades out quickly.     */
+   Opacity-only, deliberately — the previous version also translated 8px on
+   enter, and that animation was observed getting stuck mid-transition
+   (never settling to translateY(0)), which left every page permanently
+   offset 8px and created a real page-level scroll overflow app-wide, not
+   just a cosmetic quirk. Opacity can never cause a layout/scroll bug like
+   that even if an animation gets stuck, so this is a hard guarantee, not
+   just a bugfix for one instance of it.                                    */
 @keyframes page-enter {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0);   }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 @keyframes page-exit {
   from { opacity: 1; }
   to   { opacity: 0; }
 }
 
-.animate-page-enter { animation: page-enter 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-page-enter { animation: page-enter 0.15s ease-out both; }
 .animate-page-exit  { animation: page-exit  0.08s ease-in both; pointer-events: none; }
 
 .animate-slide-in  { animation: slide-in  0.22s cubic-bezier(0.16, 1, 0.3, 1); }

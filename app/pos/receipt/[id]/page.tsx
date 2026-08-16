@@ -226,7 +226,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
         
         <Link 
           href="/pos" 
-          className="flex items-center justify-center h-10 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white transition"
+          className="flex items-center justify-center h-10 rounded-lg bg-indigo-650 hover:bg-indigo-750 text-sm font-semibold text-white transition"
         >
           New POS Sale
         </Link>

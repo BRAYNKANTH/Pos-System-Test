@@ -284,7 +284,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
             </div>
 
             {/* DATE FILTER BUTTON */}
-            <button className="bg-indigo-600 hover:bg-indigo-700 text-white h-10 px-4 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-sm transition">
+            <button className="bg-indigo-650 hover:bg-indigo-750 text-white h-10 px-4 rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-sm transition">
               <Calendar className="h-4 w-4" /> Filter by date
             </button>
           </div>
@@ -468,7 +468,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
         <div className="flex justify-end print:hidden">
           <button
             onClick={handlePrint}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition flex items-center gap-1.5"
+            className="bg-indigo-650 hover:bg-indigo-750 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition flex items-center gap-1.5"
           >
             <Printer className="h-4 w-4" /> Print
           </button>
@@ -516,7 +516,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
                     setItemsPerPage(parseInt(e.target.value));
                     setCurrentPage(1);
                   }}
-                  className="h-8 rounded border border-zinc-300 px-2 bg-white outline-none font-bold cursor-pointer"
+                  className="h-8 rounded border border-zinc-300 px-2 bg-white outline-none focus:border-indigo-500 font-bold cursor-pointer"
                 >
                   <option value="10">10</option>
                   <option value="25">25</option>
@@ -667,7 +667,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
             className={`px-4 py-2 text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5 transition ${
               reportData.rows.length === 0
                 ? "bg-zinc-100 text-zinc-400 cursor-not-allowed border border-zinc-200"
-                : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                : "bg-indigo-650 hover:bg-indigo-750 text-white"
             }`}
           >
             <Download className="h-3.5 w-3.5" /> Export CSV
@@ -690,7 +690,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
           <button
             type="button"
             onClick={() => setFiltersOpen(!filtersOpen)}
-            className="flex items-center gap-2 text-sm font-bold text-indigo-650 hover:text-indigo-850 transition outline-none select-none"
+            className="flex items-center gap-2 text-sm font-bold text-indigo-650 hover:text-indigo-850 transition outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1 rounded select-none"
           >
             <SlidersHorizontal className="h-4 w-4" /> Filters
           </button>

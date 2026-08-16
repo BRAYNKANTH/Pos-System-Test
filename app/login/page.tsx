@@ -40,7 +40,7 @@ function LoginForm() {
   const inputClass =
     "h-9 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none " +
     "transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 " +
-    "dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-indigo-400 dark:focus:ring-indigo-400/20";
+    "dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-indigo-500 dark:focus:ring-indigo-400/20";
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">

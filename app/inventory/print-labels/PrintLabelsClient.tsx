@@ -180,7 +180,7 @@ export default function PrintLabelsClient({ products }: PrintLabelsClientProps) 
                 <div className="flex gap-2">
                   <button
                     onClick={() => window.print()}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4.5 py-2 rounded-lg text-sm font-bold shadow-sm transition flex items-center gap-1.5"
+                    className="bg-indigo-650 hover:bg-indigo-750 text-white px-4.5 py-2 rounded-lg text-sm font-bold shadow-sm transition flex items-center gap-1.5"
                   >
                     <Printer className="h-4 w-4" /> Print Sheet
                   </button>
@@ -571,7 +571,7 @@ export default function PrintLabelsClient({ products }: PrintLabelsClientProps) 
                   <button
                     disabled={selectedItems.length === 0}
                     onClick={() => setShowPreviewSheet(true)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-lg text-sm font-bold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-indigo-650 hover:bg-indigo-750 text-white px-8 py-3 rounded-lg text-sm font-bold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Preview
                   </button>

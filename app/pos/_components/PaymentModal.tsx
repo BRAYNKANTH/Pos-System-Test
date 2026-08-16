@@ -167,7 +167,7 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
   useEffect(() => {
     if (!open || completedTxId) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !submitting) {
         e.preventDefault();
         onClose();
       } else if (e.key === "Enter" && !e.shiftKey && !submitting && totalPaying >= total && total > 0) {
@@ -354,7 +354,7 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
               </button>
               <button
                 onClick={handleNewSale}
-                className="h-9 px-5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-bold text-white transition shadow-sm flex items-center gap-1"
+                className="h-9 px-5 rounded-lg bg-indigo-650 hover:bg-indigo-750 text-xs font-bold text-white transition shadow-sm flex items-center gap-1"
               >
                 <Plus className="h-4 w-4" />
                 New Sale (Esc)
@@ -381,7 +381,12 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">Enter tender amounts or select fast cash shortcuts</p>
               </div>
-              <button onClick={onClose} className="rounded-lg hover:bg-zinc-100 p-1.5 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 transition" title="Close (Esc)">
+              <button
+                onClick={onClose}
+                disabled={submitting}
+                className="rounded-lg hover:bg-zinc-100 p-1.5 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
+                title="Close (Esc)"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -589,7 +594,8 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
             </button>
             <button
               onClick={onClose}
-              className="h-10 w-full rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-300 transition uppercase tracking-wide"
+              disabled={submitting}
+              className="h-10 w-full rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-300 transition uppercase tracking-wide disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Cancel (Esc)
             </button>

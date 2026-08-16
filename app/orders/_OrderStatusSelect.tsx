@@ -30,7 +30,7 @@ export function OrderStatusSelect({ orderId, status }: { orderId: string; status
       value={value}
       disabled={saving}
       onChange={(e) => handleChange(e.target.value)}
-      className="h-8 rounded-md border border-zinc-200 bg-transparent px-2 text-xs capitalize dark:border-zinc-800"
+      className="h-8 rounded-md border border-zinc-200 bg-transparent px-2 text-xs capitalize outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-800"
     >
       {STATUSES.map((s) => (
         <option key={s} value={s}>

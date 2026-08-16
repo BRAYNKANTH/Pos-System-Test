@@ -58,7 +58,7 @@ export function ThresholdForm({
           type="number"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+          className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
         />
       </div>
       {message && <p className="text-sm text-zinc-500">{message}</p>}

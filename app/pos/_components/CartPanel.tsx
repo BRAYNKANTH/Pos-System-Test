@@ -88,6 +88,7 @@ export function CartPanel({
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [savingCustomer, setSavingCustomer] = useState(false);
 
   const [canOverridePrice, setCanOverridePrice] = useState(false);
   const [localProducts, setLocalProducts] = useState<Product[]>([]);
@@ -165,8 +166,9 @@ export function CartPanel({
   // Create new customer
   async function handleAddCustomer(e: React.FormEvent) {
     e.preventDefault();
-    if (!newCustomerName) return;
+    if (!newCustomerName || savingCustomer) return;
 
+    setSavingCustomer(true);
     try {
       const res = await fetch("/api/customers", {
         method: "POST",
@@ -188,6 +190,8 @@ export function CartPanel({
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setSavingCustomer(false);
     }
   }
 
@@ -391,7 +395,7 @@ export function CartPanel({
                             step="1"
                             value={line.qty}
                             onChange={(e) => setQty(line.sku, Math.max(0, parseFloat(e.target.value) || 0))}
-                            className="h-6 w-8 text-center text-xs font-bold font-mono outline-none dark:bg-zinc-900 text-zinc-900 dark:text-white tabular-nums"
+                            className="h-6 w-8 text-center text-xs font-bold font-mono outline-none focus:ring-1 focus:ring-indigo-500 rounded dark:bg-zinc-900 text-zinc-900 dark:text-white tabular-nums"
                           />
                           <button
                             onClick={() => setQty(line.sku, line.qty + 1)}
@@ -472,7 +476,7 @@ export function CartPanel({
                                       setLineDiscount(line.sku, { ...line.lineDiscount, type });
                                     }
                                   }}
-                                  className="h-7 rounded border border-zinc-300 bg-white px-1.5 text-xs outline-none dark:border-zinc-700 dark:bg-zinc-900"
+                                  className="h-7 rounded border border-zinc-300 bg-white px-1.5 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
                                 >
                                   <option value="percent">%</option>
                                   <option value="amount">Rs</option>
@@ -539,7 +543,7 @@ export function CartPanel({
                   value={discountVal}
                   onChange={(e) => setDiscountVal(Number(e.target.value) || 0)}
                   onBlur={applyInlineDiscount}
-                  className="h-6 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-xs outline-none dark:bg-zinc-800"
+                  className="h-6 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-xs outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 dark:bg-zinc-800"
                 />
                 <button
                   onClick={() => {
@@ -589,7 +593,7 @@ export function CartPanel({
                   value={shippingVal}
                   onChange={(e) => setShippingVal(Number(e.target.value) || 0)}
                   onBlur={applyInlineShipping}
-                  className="h-6 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-xs outline-none dark:bg-zinc-800"
+                  className="h-6 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-xs outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 dark:bg-zinc-800"
                 />
               </div>
             ) : (
@@ -638,10 +642,10 @@ export function CartPanel({
             />
           </div>
           <div className="mt-3 flex gap-2">
-            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white flex-1 font-bold">
-              Save Customer
+            <Button type="submit" disabled={savingCustomer} className="bg-indigo-650 hover:bg-indigo-750 text-white flex-1 font-bold">
+              {savingCustomer ? "Saving..." : "Save Customer"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => setIsCustomerModalOpen(false)}>
+            <Button type="button" variant="outline" disabled={savingCustomer} onClick={() => setIsCustomerModalOpen(false)}>
               Cancel
             </Button>
           </div>

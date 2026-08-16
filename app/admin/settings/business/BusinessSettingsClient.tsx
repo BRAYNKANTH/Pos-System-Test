@@ -742,7 +742,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutExpress}
                       onChange={(e) => setShortcutExpress(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -752,7 +752,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutPay}
                       onChange={(e) => setShortcutPay(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -762,7 +762,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutDraft}
                       onChange={(e) => setShortcutDraft(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -772,7 +772,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutCancel}
                       onChange={(e) => setShortcutCancel(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -782,7 +782,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutQuantity}
                       onChange={(e) => setShortcutQuantity(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -792,7 +792,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutScale}
                       onChange={(e) => setShortcutScale(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
                 </div>
@@ -805,7 +805,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutDiscount}
                       onChange={(e) => setShortcutDiscount(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -815,7 +815,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutOrderTax}
                       onChange={(e) => setShortcutOrderTax(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -825,7 +825,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutPaymentRow}
                       onChange={(e) => setShortcutPaymentRow(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -835,7 +835,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutFinalize}
                       onChange={(e) => setShortcutFinalize(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
 
@@ -845,7 +845,7 @@ export default function BusinessSettingsClient() {
                       type="text"
                       value={shortcutAddProduct}
                       onChange={(e) => setShortcutAddProduct(e.target.value)}
-                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none bg-white text-zinc-700"
+                      className="h-9 w-44 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white text-zinc-700"
                     />
                   </div>
                 </div>
@@ -872,9 +872,10 @@ export default function BusinessSettingsClient() {
           <div className="border-t border-zinc-250 pt-6 mt-8 flex justify-end">
             <button
               type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-lg text-xs font-extrabold shadow-md transition"
+              disabled={saving}
+              className="bg-indigo-650 hover:bg-indigo-750 text-white px-8 py-3 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Save Settings
+              {saving ? "Saving..." : "Save Settings"}
             </button>
           </div>
 
@@ -887,9 +888,10 @@ export default function BusinessSettingsClient() {
         <button
           type="submit"
           onClick={handleUpdateSettings}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-lg text-xs font-extrabold shadow-md transition"
+          disabled={saving}
+          className="bg-indigo-650 hover:bg-indigo-750 text-white px-8 py-3 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Save Settings
+          {saving ? "Saving..." : "Save Settings"}
         </button>
       </div>
 

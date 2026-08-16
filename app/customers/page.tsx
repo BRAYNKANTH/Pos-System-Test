@@ -29,7 +29,7 @@ export default async function CustomersPage({
           name="query"
           defaultValue={query}
           placeholder="Search by name or email…"
-          className="h-9 flex-1 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+          className="h-9 flex-1 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
         />
       </form>
 

@@ -285,7 +285,7 @@ export default function RolesClient({ initialGrants }: RolesClientProps) {
             <button
               type="submit"
               disabled={saving}
-              className="bg-indigo-600 hover:bg-indigo-750 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50"
+              className="bg-indigo-650 hover:bg-indigo-750 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save"}
             </button>
@@ -321,22 +321,7 @@ export default function RolesClient({ initialGrants }: RolesClientProps) {
       <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
         
         {/* UPPER CARD CONTROL BAR */}
-        <div className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-150">
-          
-          <div className="flex flex-wrap items-center gap-3">
-            {/* ENTRIES SELECT */}
-            <div className="flex items-center gap-2 text-sm text-zinc-650 font-semibold">
-              <span>Show</span>
-              <select
-                value="25"
-                onChange={() => {}}
-                className="h-8 rounded border border-zinc-300 px-2 bg-white outline-none font-bold"
-              >
-                <option value="25">25</option>
-              </select>
-              <span>entries</span>
-            </div>
-          </div>
+        <div className="p-5 flex items-center justify-end gap-4 border-b border-zinc-150">
 
           <div className="flex items-center gap-3 self-end md:self-auto">
             {/* SEARCH INPUT */}

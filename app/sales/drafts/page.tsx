@@ -26,13 +26,13 @@ export default async function DraftsPage() {
         <h1 className="text-xl font-semibold tracking-tight">Drafts</h1>
         <Link
           href="/pos"
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+          className="rounded-md bg-indigo-650 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-750"
         >
           + Add Draft
         </Link>
       </div>
       <p className="mb-4 text-xs text-zinc-500">
-        Drafts are parked at the POS screen. Open <Link href="/pos" className="text-blue-600 hover:underline dark:text-blue-400">/pos</Link> and click <strong>Held</strong> to resume one.
+        Drafts are parked at the POS screen. Open <Link href="/pos" className="text-indigo-650 hover:underline dark:text-indigo-400">/pos</Link> and click <strong>Held</strong> to resume one.
       </p>
 
       <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">

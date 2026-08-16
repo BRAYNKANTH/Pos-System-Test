@@ -249,7 +249,7 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
             {/* ADD BUTTON */}
             <button
               onClick={handleOpenAddModal}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5"
+              className="bg-indigo-650 hover:bg-indigo-750 text-white px-5 py-2 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5"
             >
               <Plus className="h-4 w-4" /> Add
             </button>
@@ -512,7 +512,7 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
                 <button
                   type="submit"
                   disabled={formLoading}
-                  className="bg-indigo-600 hover:bg-indigo-750 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50"
+                  className="bg-indigo-650 hover:bg-indigo-750 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50"
                 >
                   {formLoading ? "Saving..." : "Save"}
                 </button>

@@ -141,7 +141,7 @@ export function ShipmentsClient({ initialShipments }: { initialShipments: Shipme
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
+                  className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-750 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
                 >
                   {submitting ? "Saving..." : "Save"}
                 </button>
@@ -181,7 +181,7 @@ export function ShipmentsClient({ initialShipments }: { initialShipments: Shipme
                     <select
                       value={s.status}
                       onChange={(e) => updateStatus(s.id, e.target.value)}
-                      className={`px-2 py-0.5 rounded text-[11px] font-bold capitalize border-0 outline-none ${STATUS_STYLES[s.status] ?? "bg-zinc-100 text-zinc-700"}`}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold capitalize border-0 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 ${STATUS_STYLES[s.status] ?? "bg-zinc-100 text-zinc-700"}`}
                     >
                       <option value="pending">Pending</option>
                       <option value="shipped">Shipped</option>

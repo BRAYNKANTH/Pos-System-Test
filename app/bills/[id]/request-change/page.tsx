@@ -63,7 +63,7 @@ export default function RequestChangePage({ params }: { params: Promise<{ id: st
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="e.g. Customer returned item, wrong qty rung up"
-            className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+            className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
           />
         </div>
         <div className="flex flex-col gap-1.5">
@@ -72,7 +72,7 @@ export default function RequestChangePage({ params }: { params: Promise<{ id: st
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Describe exactly what should change (item, qty, amount)"
-            className="h-24 rounded-md border border-zinc-200 bg-transparent px-3 py-2 text-sm outline-none dark:border-zinc-800"
+            className="h-24 rounded-md border border-zinc-200 bg-transparent px-3 py-2 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
           />
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}

@@ -9,7 +9,10 @@ export async function Header() {
   if (!user) return null;
 
   return (
-    <header className="flex items-center justify-between border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
+    <header
+      id="app-header"
+      className="flex items-center justify-between border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800"
+    >
       <Link href="/" className="font-semibold">
         Cloud POS
       </Link>

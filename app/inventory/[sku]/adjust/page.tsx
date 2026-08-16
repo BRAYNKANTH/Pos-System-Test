@@ -56,7 +56,7 @@ export default function AdjustPage({ params }: { params: Promise<{ sku: string }
             placeholder="e.g. -5 for damage, +10 for a stock take correction"
             value={qtyChange}
             onChange={(e) => setQtyChange(e.target.value)}
-            className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+            className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
           />
         </div>
         <div className="flex flex-col gap-1.5">

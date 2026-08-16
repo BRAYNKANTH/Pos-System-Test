@@ -353,7 +353,7 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
             {/* ADD BUTTON */}
             <button
               onClick={handleOpenAddModal}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5"
+              className="bg-indigo-650 hover:bg-indigo-750 text-white px-5 py-2 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5"
             >
               <Plus className="h-4 w-4" /> Add
             </button>
@@ -720,14 +720,16 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
               <div className="pt-4 border-t border-zinc-150 flex items-center justify-end gap-3">
                 <button
                   type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-750 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition"
+                  disabled={formLoading}
+                  className="bg-indigo-650 hover:bg-indigo-750 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save
+                  {formLoading ? "Saving..." : "Save"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="bg-zinc-700 hover:bg-zinc-800 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition"
+                  disabled={formLoading}
+                  className="bg-zinc-700 hover:bg-zinc-800 text-white px-6 py-2.5 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Close
                 </button>

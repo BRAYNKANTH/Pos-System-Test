@@ -105,7 +105,7 @@ export function IntegrationsClient({
         <select
           value={dataCenter}
           onChange={(e) => setDataCenter(e.target.value)}
-          className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+          className="h-9 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
         >
           {DATA_CENTER_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -134,7 +134,7 @@ export function IntegrationsClient({
               value={orgId}
               onChange={(e) => setOrgId(e.target.value)}
               placeholder="e.g. 60012345678"
-              className="h-9 flex-1 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none dark:border-zinc-800"
+              className="h-9 flex-1 rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-800"
             />
             <Button type="submit" disabled={saving}>
               {saving ? "Saving..." : "Save"}

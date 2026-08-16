@@ -1660,7 +1660,7 @@ export default function InvoiceSettingsClient() {
           <div className="flex justify-end p-2 bg-zinc-50 rounded-lg border border-zinc-200 shadow-sm">
             <button
               type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-lg text-xs font-extrabold shadow-md transition"
+              className="bg-indigo-650 hover:bg-indigo-750 text-white px-8 py-3 rounded-lg text-xs font-extrabold shadow-md transition"
             >
               Update
             </button>
@@ -1735,7 +1735,7 @@ export default function InvoiceSettingsClient() {
                   {/* ADD BUTTON */}
                   <button
                     onClick={handleOpenAddScheme}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white h-9 px-4 rounded font-bold text-xs flex items-center gap-1.5 shadow-sm transition"
+                    className="bg-indigo-650 hover:bg-indigo-750 text-white h-9 px-4 rounded font-bold text-xs flex items-center gap-1.5 shadow-sm transition"
                   >
                     <Plus className="h-3.5 w-3.5" /> Add
                   </button>
@@ -1906,7 +1906,7 @@ export default function InvoiceSettingsClient() {
                   {/* ADD BUTTON */}
                   <button
                     onClick={handleOpenAddLayout}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white h-9 px-4 rounded font-bold text-xs flex items-center gap-1.5 shadow-sm transition"
+                    className="bg-indigo-650 hover:bg-indigo-750 text-white h-9 px-4 rounded font-bold text-xs flex items-center gap-1.5 shadow-sm transition"
                   >
                     <Plus className="h-3.5 w-3.5" /> Add
                   </button>

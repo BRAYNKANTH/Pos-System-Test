@@ -19,8 +19,8 @@ export class AlreadyVoidedError extends Error {
  * separate-approver-approves workflow (still "administrator-controlled"
  * since it requires the same password re-auth as every other approval
  * action — see /api/pos/void/[id]/route.ts). Restores stock for every
- * line item, unlike the request-based void path today (a correctness gap
- * worth fixing there too, out of scope for this change). */
+ * line item, same as the request-based void path (see
+ * approveChangeRequest in lib/bills/changeRequests.ts). */
 export async function voidTransaction(transactionId: string, actorId: string) {
   return prisma.$transaction(async (tx) => {
     const transaction = await tx.transaction.findUnique({

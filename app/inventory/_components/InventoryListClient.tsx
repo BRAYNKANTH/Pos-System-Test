@@ -589,7 +589,7 @@ export default function InventoryListClient({
               <div className="flex items-center gap-3">
                 <Link
                   href="/inventory/add-product"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-1.5 transition"
+                  className="bg-indigo-650 hover:bg-indigo-750 text-white px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-1.5 transition"
                 >
                   <Plus className="h-4 w-4" />
                   Add
@@ -819,7 +819,7 @@ export default function InventoryListClient({
                                 required
                                 value={newStockQty}
                                 onChange={(e) => setNewStockQty(e.target.value)}
-                                className="w-20 px-2.5 text-center text-xs font-mono outline-none text-zinc-800"
+                                className="w-20 px-2.5 text-center text-xs font-mono outline-none focus:bg-indigo-50 text-zinc-800"
                               />
                               <span className="bg-zinc-100 text-zinc-650 font-bold px-3 py-1.5 text-xs border-l border-zinc-200 select-none">
                                 Pc(s)
@@ -909,7 +909,7 @@ export default function InventoryListClient({
                 <button
                   type="submit"
                   disabled={adjustingStock}
-                  className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-bold shadow-md transition-colors disabled:opacity-50 tracking-wide uppercase"
+                  className="px-8 py-2.5 bg-indigo-650 hover:bg-indigo-750 text-white rounded text-sm font-bold shadow-md transition-colors disabled:opacity-50 tracking-wide uppercase"
                 >
                   {adjustingStock ? "Saving..." : "Save"}
                 </button>
@@ -1043,7 +1043,7 @@ export default function InventoryListClient({
             <div className="flex justify-end border-t pt-3">
               <button
                 onClick={() => setHistoryItem(null)}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-755 text-white rounded text-xs font-bold shadow-sm transition"
+                className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-750 text-white rounded text-xs font-bold shadow-sm transition"
               >
                 Close Audit
               </button>
