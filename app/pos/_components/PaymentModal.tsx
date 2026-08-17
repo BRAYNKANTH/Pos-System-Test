@@ -8,7 +8,7 @@ import { queueOfflineTransaction } from "@/lib/offline/sync";
 import { Banknote, CreditCard, Wallet, Trash2, Plus, X, Printer } from "lucide-react";
 
 type PaymentTender = {
-  method: "cash" | "card" | "wallet";
+  method: "cash" | "card" | "wallet" | "gift_card";
   amount: number;
   note?: string;
 };
@@ -132,6 +132,26 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
         body = JSON.parse(text);
       } catch (err) {
         throw new SyntaxError("Failed to parse JSON response");
+      }
+
+      // Process gift card deductions if applicable
+      for (const t of tenders) {
+        if (t.method === "gift_card" && t.note) {
+          await fetch(`/api/admin/gift-cards/${encodeURIComponent(t.note)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deductAmount: t.amount }),
+          }).catch(() => {});
+        }
+      }
+
+      // If customer linked, calculate & credit earned loyalty points
+      if (customerId) {
+        await fetch("/api/customers/loyalty", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customerId, amountSpent: total }),
+        }).catch(() => {});
       }
 
       if (!res.ok || !body.success) {
@@ -496,6 +516,7 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
                         <option value="cash">💵 Cash</option>
                         <option value="card">💳 Card</option>
                         <option value="wallet">📱 Digital Wallet</option>
+                        <option value="gift_card">🎁 Gift Card / Voucher</option>
                       </select>
                     </div>
                   </div>

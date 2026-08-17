@@ -45,6 +45,7 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
   const [formPassword, setFormPassword] = useState("");
   const [formConfirmPassword, setFormConfirmPassword] = useState("");
   const [formRole, setFormRole] = useState("CASHIER");
+  const [formPinCode, setFormPinCode] = useState("");
 
   const [formLoading, setFormLoading] = useState(false);
 
@@ -159,6 +160,7 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
         email: formEmail,
         role: formRole,
         password: formPassword || undefined,
+        pinCode: formPinCode || undefined,
         allowLogin: formAllowLogin,
         username: formUsername || undefined,
         prefix: formPrefix,
@@ -490,6 +492,18 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
                           <option value="MANAGER">Manager</option>
                           <option value="CASHIER">Cashier</option>
                         </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-650 mb-1">Security PIN (4-6 digits):</label>
+                        <input
+                          type="password"
+                          maxLength={6}
+                          placeholder="e.g. 1234"
+                          value={formPinCode}
+                          onChange={(e) => setFormPinCode(e.target.value)}
+                          className="h-9 w-full rounded border border-zinc-300 px-3 text-xs font-mono font-bold outline-none focus:border-indigo-500 bg-white"
+                        />
                       </div>
 
                       {/* Locations */}

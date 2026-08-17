@@ -227,6 +227,7 @@ export function AppSidebar({
               {navLink("/sales/returns", "List Sell Return")}
               {navLink("/sales/shipments", "Shipments")}
               {navLink("/sales/discounts", "Discounts")}
+              {navLink("/admin/gift-cards", "Gift Cards")}
             </div>
           </details>
 

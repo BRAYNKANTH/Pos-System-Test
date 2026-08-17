@@ -22,6 +22,7 @@ import {
   History,
   X
 } from "lucide-react";
+import { VisualAnalyticsCharts } from "../_components/VisualAnalyticsCharts";
 
 interface SummaryCard {
   label: string;
@@ -696,6 +697,8 @@ export default function ReportClient({ reportData }: ReportClientProps) {
           </div>
         ))}
       </div>
+
+      <VisualAnalyticsCharts />
 
       {isStockReport && (
         <div className="bg-white rounded-lg border border-zinc-200 p-5 shadow-sm space-y-4">
