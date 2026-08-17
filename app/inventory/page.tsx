@@ -6,15 +6,15 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 export default async function InventoryPage() {
-  const user = await getCurrentUser();
+  // Auth check and the product list don't depend on each other — run them
+  // concurrently instead of paying two sequential DB round trips.
+  const [user, items] = await Promise.all([
+    getCurrentUser(),
+    prisma.inventoryItem.findMany({ orderBy: { name: "asc" } }),
+  ]);
   if (!user) {
     redirect("/login");
   }
-
-  // Fetch all products sorted by name
-  const items = await prisma.inventoryItem.findMany({
-    orderBy: { name: "asc" },
-  });
 
   const formattedItems = items.map((item) => ({
     ...item,

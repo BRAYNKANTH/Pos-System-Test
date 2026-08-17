@@ -12,13 +12,16 @@ export default async function AllSalesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const transactions = await prisma.transaction.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    include: { customer: true, tenders: true, bill: true },
-  });
-
-  const hasRequestPermission = await checkPermission(user.role, PERMISSIONS.BILLS_REQUEST_CHANGE);
+  // Neither depends on the other — run them concurrently instead of
+  // paying two sequential DB round trips.
+  const [transactions, hasRequestPermission] = await Promise.all([
+    prisma.transaction.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: { customer: true, tenders: true, bill: true },
+    }),
+    checkPermission(user.role, PERMISSIONS.BILLS_REQUEST_CHANGE),
+  ]);
 
   const fmt = (n: number) =>
     `Rs ${n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

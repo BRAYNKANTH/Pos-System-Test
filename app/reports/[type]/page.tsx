@@ -90,19 +90,19 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
       title = "Profit / Loss Report";
       description = "Gross and net profit calculations based on transactions, cost of goods, and expenses.";
       
-      // 1. Query all necessary tables from the database
-      const inventoryItems = await prisma.inventoryItem.findMany();
-      const transactions = await prisma.transaction.findMany({
-        where: { status: "completed" },
-        include: { items: true, cashier: true, customer: true },
-      });
-      const adjustments = await prisma.stockAdjustment.findMany({
-        where: { status: "applied" },
-      });
-      const expenses = await prisma.expense.findMany();
-      const purchases = await prisma.purchase.findMany({
-        where: { status: "Completed" },
-      });
+      // 1. Query all necessary tables from the database — none of these
+      // depend on each other, so run them concurrently instead of paying
+      // five sequential Supabase round trips.
+      const [inventoryItems, transactions, adjustments, expenses, purchases] = await Promise.all([
+        prisma.inventoryItem.findMany(),
+        prisma.transaction.findMany({
+          where: { status: "completed" },
+          include: { items: true, cashier: true, customer: true },
+        }),
+        prisma.stockAdjustment.findMany({ where: { status: "applied" } }),
+        prisma.expense.findMany(),
+        prisma.purchase.findMany({ where: { status: "Completed" } }),
+      ]);
 
       // 2. Map data for SKU based metrics calculation
       const soldQtyMap = new Map<string, number>();
@@ -324,12 +324,12 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
       description = "Comparison of purchase costs versus sales revenues.";
       headers = ["Period / Metric", "Purchase Value", "Sale Value", "Balance"];
 
-      const transactions = await prisma.transaction.findMany({
-        where: { status: "completed" },
-      });
+      const [transactions, purchases] = await Promise.all([
+        prisma.transaction.findMany({ where: { status: "completed" } }),
+        prisma.purchase.findMany({ where: { status: "Completed" } }),
+      ]);
 
       const totalSales = transactions.reduce((acc, t) => acc + Number(t.total), 0);
-      const purchases = await prisma.purchase.findMany({ where: { status: "Completed" } });
       const purchaseEst = purchases.reduce((acc, p) => acc + Number(p.amountPaid), 0);
 
       rows = [
@@ -394,10 +394,13 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
       description = "Overview of business transactions with contacts.";
       headers = ["Contact Name", "Contact Details", "Role", "Transactions Count", "Total Transacted Value"];
 
-      // 1. Fetch Customers and their transaction counts
-      const customers = await prisma.customer.findMany({
-        include: { transactions: true },
-      });
+      // Customers (with transactions), suppliers, and purchases are three
+      // independent queries — fetch them concurrently.
+      const [customers, suppliers, purchases] = await Promise.all([
+        prisma.customer.findMany({ include: { transactions: true } }),
+        prisma.supplier.findMany(),
+        prisma.purchase.findMany({ where: { status: "Completed" } }),
+      ]);
 
       rows = customers.map((c) => {
         const total = c.transactions.reduce((acc, t) => acc + Number(t.total), 0);
@@ -409,10 +412,6 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
           value: currencyFmt(total),
         };
       });
-
-      // 2. Fetch Suppliers and their purchase counts
-      const suppliers = await prisma.supplier.findMany();
-      const purchases = await prisma.purchase.findMany({ where: { status: "Completed" } });
 
       const supplierRows = suppliers.map((s) => {
         const supplierPurchases = purchases.filter((p) => p.supplierId === s.id);
@@ -492,18 +491,14 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
       title = "Stock Report";
       description = "Real-time list of inventory items and current quantities on hand.";
 
-      const inventory = await prisma.inventoryItem.findMany({
-        orderBy: { name: "asc" },
-      });
-
-      // Fetch transaction items, stock transfers, and adjustments
-      const transactionItems = await prisma.transactionItem.findMany({
-        where: { transaction: { status: "completed" } },
-      });
-      const transfers = await prisma.stockTransfer.findMany();
-      const adjustments = await prisma.stockAdjustment.findMany({
-        where: { status: "applied" },
-      });
+      // Inventory, transaction items, stock transfers, and adjustments are
+      // four independent queries — fetch them concurrently.
+      const [inventory, transactionItems, transfers, adjustments] = await Promise.all([
+        prisma.inventoryItem.findMany({ orderBy: { name: "asc" } }),
+        prisma.transactionItem.findMany({ where: { transaction: { status: "completed" } } }),
+        prisma.stockTransfer.findMany(),
+        prisma.stockAdjustment.findMany({ where: { status: "applied" } }),
+      ]);
 
       // Sum quantities per SKU
       const soldQtyMap = new Map<string, number>();
@@ -874,10 +869,10 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
       description = "Ledger of payments sent to suppliers for inventory stock.";
       headers = ["Payment Date", "Supplier", "Reference No", "Payment Method", "Status", "Amount Paid"];
 
-      const purchases = await prisma.purchase.findMany({
-        orderBy: { createdAt: "desc" },
-      });
-      const suppliers = await prisma.supplier.findMany();
+      const [purchases, suppliers] = await Promise.all([
+        prisma.purchase.findMany({ orderBy: { createdAt: "desc" } }),
+        prisma.supplier.findMany(),
+      ]);
       const supplierMap = new Map(suppliers.map((s) => [s.id, s.name]));
 
       rows = purchases.map((p) => ({
