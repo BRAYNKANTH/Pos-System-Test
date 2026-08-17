@@ -1,5 +1,5 @@
-import { PageLoadingSkeleton } from "../_components/PageLoadingSkeleton";
+import { PageLoadingSpinner } from "../_components/PageLoadingSpinner";
 
 export default function Loading() {
-  return <PageLoadingSkeleton />;
+  return <PageLoadingSpinner />;
 }

@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
@@ -120,9 +121,24 @@ const DEFAULT_GRANTS: Record<Role, PermissionKey[]> = {
  * that checks several permissions previously paid a full Supabase
  * round-trip (2 queries each, via Promise.all) per check — now it's one
  * query total, shared. Keyed by nothing (there's only ever one table to
- * fetch), so every caller in a request gets the same cached promise. */
+ * fetch), so every caller in a request gets the same cached promise.
+ *
+ * That still meant one real Supabase round trip on EVERY navigation,
+ * every time — role grants change maybe a few times a year (an admin
+ * editing /admin/settings/roles), so paying real network latency for
+ * them on every single page load was pure waste. The inner
+ * `unstable_cache` persists the result across requests (5 min, or
+ * instantly on save via `revalidateTag` in /api/admin/roles), so on any
+ * warm request this is an in-memory read, not a DB round trip. The outer
+ * React `cache()` still dedupes repeat calls within one render pass. */
+const getAllRolePermissionsCached = unstable_cache(
+  async () => prisma.rolePermission.findMany(),
+  ["role-permissions-all"],
+  { tags: ["role-permissions"], revalidate: 300 },
+);
+
 const getAllRolePermissions = cache(async () => {
-  return prisma.rolePermission.findMany();
+  return getAllRolePermissionsCached();
 });
 
 /** Real implementation: looks up `roles_permissions` (see

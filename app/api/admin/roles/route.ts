@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS, type PermissionKey } from "@/lib/auth/rbac";
@@ -31,6 +32,16 @@ export async function POST(req: NextRequest) {
     update: { thresholdValue },
     create: { role, permissionKey, thresholdValue },
   });
+  // The 5-minute role-permissions cache (lib/auth/rbac.ts) exists so
+  // every page navigation doesn't pay a DB round trip — but that means an
+  // admin's change here would otherwise sit stale for up to 5 minutes.
+  // Bust it immediately so the new grant applies on the very next request.
+  // { expire: 0 } for immediate invalidation — this is a Route Handler,
+  // not a Server Action, so `revalidateTag`'s default "max"/stale-while-
+  // revalidate profile would still serve one more stale read before
+  // refreshing. An admin saving a permission change expects it to apply
+  // on their very next click, not "eventually."
+  revalidateTag("role-permissions", { expire: 0 });
   return apiSuccess(grant);
 }
 
@@ -52,6 +63,12 @@ export async function PATCH(req: NextRequest) {
   await prisma.rolePermission
     .delete({ where: { role_permissionKey: { role, permissionKey } } })
     .catch(() => null);
+  // { expire: 0 } for immediate invalidation — this is a Route Handler,
+  // not a Server Action, so `revalidateTag`'s default "max"/stale-while-
+  // revalidate profile would still serve one more stale read before
+  // refreshing. An admin saving a permission change expects it to apply
+  // on their very next click, not "eventually."
+  revalidateTag("role-permissions", { expire: 0 });
   return apiSuccess({ role, permissionKey, revoked: true });
 }
 

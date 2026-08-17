@@ -14,6 +14,54 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ─── Custom in-between color shades ────────────────────────────────────────
+   The app's classes use hand-picked shades like `indigo-650`, `zinc-450`,
+   `red-750` throughout (the primary-button color, subtle label grays, etc)
+   — none of which exist in Tailwind's default palette (only round hundreds:
+   50, 100, 200 … 900, 950). An undefined utility class silently produces NO
+   CSS rather than an error, so every one of these was rendering with no
+   color at all — a background-color one just looks transparent/white until
+   a *different*, valid shade (like a hover state) happens to apply; a
+   text-color one silently falls back to inheriting the ambient text color
+   instead of the intended muted tone. This was invisible in every review
+   this session because verification checked class-name strings and DOM
+   presence, never actual computed color values.
+   Fix: define every custom shade actually used in the codebase, computed
+   by interpolating this color's L/C/H between Tailwind's nearest official
+   stops (e.g. indigo-650 = halfway between indigo-600 and indigo-700) —
+   restores the original design intent everywhere in one place instead of
+   hunting down and rewriting every individual class usage. */
+@theme {
+  --color-blue-650: oklch(51.700% 0.244 263.628);
+  --color-blue-655: oklch(51.410% 0.244 263.703);
+  --color-emerald-650: oklch(55.200% 0.132 164.418);
+  --color-green-55: oklch(98.000% 0.021 155.918);
+  --color-green-650: oklch(57.700% 0.174 149.642);
+  --color-indigo-150: oklch(90.000% 0.050 273.413);
+  --color-indigo-650: oklch(48.400% 0.251 276.995);
+  --color-indigo-655: oklch(48.130% 0.250 276.997);
+  --color-indigo-750: oklch(42.750% 0.217 277.195);
+  --color-indigo-850: oklch(37.850% 0.169 278.031);
+  --color-orange-650: oklch(59.950% 0.209 39.759);
+  --color-red-650: oklch(54.100% 0.229 27.422);
+  --color-red-750: oklch(47.450% 0.195 27.209);
+  --color-sky-650: oklch(54.400% 0.146 242.358);
+  --color-zinc-55: oklch(98.320% 0 none);
+  --color-zinc-150: oklch(94.350% 0.003 286.347);
+  --color-zinc-250: oklch(89.550% 0.005 286.303);
+  --color-zinc-350: oklch(78.800% 0.010 286.177);
+  --color-zinc-405: oklch(69.735% 0.015 286.061);
+  --color-zinc-450: oklch(62.850% 0.015 286.002);
+  --color-zinc-455: oklch(62.085% 0.016 285.996);
+  --color-zinc-505: oklch(54.650% 0.016 285.930);
+  --color-zinc-550: oklch(49.700% 0.017 285.862);
+  --color-zinc-555: oklch(49.150% 0.017 285.854);
+  --color-zinc-650: oklch(40.600% 0.015 285.796);
+  --color-zinc-655: oklch(40.240% 0.015 285.796);
+  --color-zinc-750: oklch(32.200% 0.009 285.919);
+  --color-zinc-850: oklch(24.200% 0.006 285.959);
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 html {

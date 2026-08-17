@@ -271,6 +271,7 @@ export function AppSidebar({
               {navLink("/admin/settings/barcode", "Barcode Settings")}
               {navLink("/admin/settings/printers", "Receipt Printers")}
               {navLink("/admin/settings/tax", "Tax Rates")}
+              {navLink("/admin/settings/integrations", "Zoho Integration")}
               {navLink("/admin/settings/roles", "Roles")}
             </div>
           </details>
