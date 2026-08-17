@@ -8,12 +8,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
 
   const { id } = await params;
-  const [transaction, invoiceSettings] = await Promise.all([
+  const [transaction, invoiceSettings, businessSettings, defaultLocation] = await Promise.all([
     prisma.transaction.findUnique({
       where: { id },
       include: { items: true, cashier: true, bill: true, tenders: true, customer: true },
     }),
     prisma.invoiceSettings.findUnique({ where: { id: "default" } }),
+    prisma.businessSettings.findUnique({ where: { id: "default" } }),
+    (async () =>
+      (await prisma.location.findFirst({ where: { isDefault: true } })) ??
+      (await prisma.location.findFirst()))(),
   ]);
   if (!transaction) return apiError("NOT_FOUND", "Transaction not found", { status: 404 });
 
@@ -23,9 +27,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     : null;
   const headingText = defaultLayout?.invoiceHeading || "Sales Receipt";
 
+  const bizData = (businessSettings?.data as any) ?? {};
+  const bizName = bizData.bizName || defaultLocation?.name || "";
+  const taxNo = bizData.tax1No || bizData.tax2No || null;
+
   return apiSuccess({
     id: transaction.id,
     headingText,
+    bizName,
+    locationName: defaultLocation?.name ?? null,
+    taxNo,
     createdAt: transaction.createdAt,
     cashierName: transaction.cashier.name,
     customerName: transaction.customer?.name ?? null,

@@ -46,19 +46,19 @@ export default function PrintLabelsClient({ products }: PrintLabelsClientProps) 
   const [priceTaxType, setPriceTaxType] = useState("Inc. tax");
 
   const [showBusinessName, setShowBusinessName] = useState(true);
-  const [businessNameText, setBusinessNameText] = useState("Mektas Supers");
+  const [businessNameText, setBusinessNameText] = useState("");
   const [businessNameSize, setBusinessNameSize] = useState(15);
 
   useEffect(() => {
-    const saved = localStorage.getItem("biz_settings");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.bizName) {
-          setBusinessNameText(parsed.bizName);
-        }
-      } catch (e) {}
-    }
+    // Was reading a "biz_settings" localStorage key that nothing in the
+    // app ever wrote to — always dead code, always fell through to the
+    // hardcoded fallback. Fetch the real value instead.
+    fetch("/api/business-info")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data?.bizName) setBusinessNameText(res.data.bizName);
+      })
+      .catch(() => {});
   }, []);
 
   const [showPackingDate, setShowPackingDate] = useState(true);

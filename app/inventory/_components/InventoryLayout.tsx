@@ -13,12 +13,14 @@ import { AppSidebar } from "@/app/_components/AppSidebar";
 
 export default function InventoryLayout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [businessName, setBusinessName] = useState("Mektas Supers");
+  const [businessName, setBusinessName] = useState("");
   const [currentDate, setCurrentDate] = useState("06-08-2026");
 
   useEffect(() => {
     setCurrentDate(new Date().toLocaleDateString("en-GB").replace(/\//g, "-"));
-    fetch("/api/admin/business-settings")
+    // /api/business-info — see AppSidebar.tsx for why not the
+    // SETTINGS_MANAGE-gated /api/admin/business-settings.
+    fetch("/api/business-info")
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data?.bizName) setBusinessName(res.data.bizName);

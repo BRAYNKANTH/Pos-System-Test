@@ -52,7 +52,7 @@ export default function BusinessSettingsClient() {
 
   // --- STATE FOR TABS ---
   // Business State
-  const [bizName, setBizName] = useState("Mektas Supers");
+  const [bizName, setBizName] = useState("");
   const [bizStartDate, setBizStartDate] = useState("2026-04-27");
   const [bizProfitPct, setBizProfitPct] = useState("25.00");
   const [bizCurrency, setBizCurrency] = useState("Sri Lanka - Rupees(LKR)");

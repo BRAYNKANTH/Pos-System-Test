@@ -72,10 +72,13 @@ export default function DashboardClient({
 
   // Business name — fetch once on mount. The result is also passed down to
   // AppSidebar via the initialBizName prop so the sidebar never needs to
-  // make its own redundant /api/admin/business-settings call.
-  const [businessName, setBusinessName] = useState("Mektas Supers");
+  // make its own redundant call. /api/business-info, not the
+  // SETTINGS_MANAGE-gated /api/admin/business-settings — that gate meant
+  // a cashier's fetch always 403'd, so this hardcoded fallback was the
+  // permanent value they saw, not a real name pulled from Settings.
+  const [businessName, setBusinessName] = useState("");
   useEffect(() => {
-    fetch("/api/admin/business-settings")
+    fetch("/api/business-info")
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data?.bizName) setBusinessName(res.data.bizName);

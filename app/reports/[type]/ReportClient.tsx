@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Download,
   Search,
@@ -75,6 +75,16 @@ export default function ReportClient({ reportData }: ReportClientProps) {
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterBrand, setFilterBrand] = useState("All");
   const [filterLocation, setFilterLocation] = useState("All");
+  // Real business locations — both location dropdowns below were a single
+  // hardcoded "Mektas Supers" option that didn't match the actual
+  // configured location(s).
+  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    fetch("/api/admin/locations")
+      .then((r) => r.json())
+      .then((res) => { if (res.success && Array.isArray(res.data)) setLocations(res.data); })
+      .catch(() => {});
+  }, []);
   const [filterStockStatus, setFilterStockStatus] = useState("All");
 
   // Stock history logs in Stock Report
@@ -278,7 +288,9 @@ export default function ReportClient({ reportData }: ReportClientProps) {
                 className="h-10 pl-9 pr-8 rounded-lg border border-indigo-200 text-xs font-bold text-zinc-700 outline-none focus:border-indigo-500 bg-white cursor-pointer select-none appearance-none"
               >
                 <option value="All locations">All locations</option>
-                <option value="Mektas Supers">Mektas Supers</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.name}>{l.name}</option>
+                ))}
               </select>
               <ChevronLeft className="-rotate-90 h-3 w-3 text-zinc-400 absolute right-3 pointer-events-none" />
             </div>
@@ -736,7 +748,9 @@ export default function ReportClient({ reportData }: ReportClientProps) {
                   className="h-9 px-3 border border-zinc-300 rounded bg-white outline-none focus:border-indigo-500 text-zinc-700 font-medium cursor-pointer"
                 >
                   <option value="All">All Locations</option>
-                  <option value="Mektas Supers">Mektas Supers</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.name}>{l.name}</option>
+                  ))}
                 </select>
               </div>
 

@@ -16,6 +16,12 @@ export async function PUT(req: NextRequest, props: { params: Promise<{ id: strin
       return apiError("INVALID_INPUT", "Name and discount amount are required.", { status: 400 });
     }
 
+    let location: string = body.location || "";
+    if (!location) {
+      const defaultLocation = await prisma.location.findFirst({ where: { isDefault: true } });
+      location = defaultLocation?.name ?? (await prisma.location.findFirst())?.name ?? "";
+    }
+
     const updated = await prisma.discount.update({
       where: { id },
       data: {
@@ -28,7 +34,7 @@ export async function PUT(req: NextRequest, props: { params: Promise<{ id: strin
         brand: body.brand || null,
         category: body.category || null,
         products: body.products || [], // JSON array
-        location: body.location || "Mektas Supers",
+        location,
         sellingPriceGroup: body.sellingPriceGroup || "All",
         applyInCustomerGroups: !!body.applyInCustomerGroups,
         isActive: body.isActive !== false,

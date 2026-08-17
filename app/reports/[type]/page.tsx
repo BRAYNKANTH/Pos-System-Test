@@ -258,9 +258,14 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
         const txGross = txGrossMap.get(tx.id) || 0;
         plLocations.set(tx.registerId, (plLocations.get(tx.registerId) || 0) + txGross);
       }
-      const tabLocations = plLocations.size > 0 
+      const tabLocations = plLocations.size > 0
         ? [...plLocations.entries()].map(([name, gp]) => ({ name, grossProfit: gp }))
-        : [{ name: "Mektas Supers", grossProfit: totalGrossProfitVal }];
+        : [{
+            name: (await prisma.location.findFirst({ where: { isDefault: true } }))?.name
+              ?? (await prisma.location.findFirst())?.name
+              ?? "Unassigned",
+            grossProfit: totalGrossProfitVal,
+          }];
 
       // Invoices
       const tabInvoices = transactions.map((tx) => {
@@ -491,14 +496,18 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
       title = "Stock Report";
       description = "Real-time list of inventory items and current quantities on hand.";
 
-      // Inventory, transaction items, stock transfers, and adjustments are
-      // four independent queries — fetch them concurrently.
-      const [inventory, transactionItems, transfers, adjustments] = await Promise.all([
+      // Inventory, transaction items, stock transfers, adjustments, and the
+      // default location are independent queries — fetch them concurrently.
+      const [inventory, transactionItems, transfers, adjustments, stockDefaultLocation] = await Promise.all([
         prisma.inventoryItem.findMany({ orderBy: { name: "asc" } }),
         prisma.transactionItem.findMany({ where: { transaction: { status: "completed" } } }),
         prisma.stockTransfer.findMany(),
         prisma.stockAdjustment.findMany({ where: { status: "applied" } }),
+        (async () =>
+          (await prisma.location.findFirst({ where: { isDefault: true } })) ??
+          (await prisma.location.findFirst()))(),
       ]);
+      const stockLocationName = stockDefaultLocation?.name ?? "Unassigned";
 
       // Sum quantities per SKU
       const soldQtyMap = new Map<string, number>();
@@ -543,7 +552,7 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
           product: i.name,
           variation: "",
           category: i.category || "groceries",
-          location: "Mektas Supers",
+          location: stockLocationName,
           unitSellingPrice: currencyFmt(sellingPrice),
           currentStock: `${qty.toFixed(2)} ${unitLabel}`,
           currentStockValuePurchase: currencyFmt(valPurchase),

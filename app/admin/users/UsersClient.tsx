@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Search,
   Plus,
@@ -45,9 +45,23 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
   const [formPassword, setFormPassword] = useState("");
   const [formConfirmPassword, setFormConfirmPassword] = useState("");
   const [formRole, setFormRole] = useState("CASHIER");
-  const [formLocations, setFormLocations] = useState<string[]>(["Mektas Supers"]);
 
   const [formLoading, setFormLoading] = useState(false);
+
+  // Real default business location — the checkbox below was a hardcoded
+  // "Mektas Supers (BL0001)" that didn't match the actual configured
+  // location, and wasn't connected to any per-user location data anyway.
+  const [defaultLocation, setDefaultLocation] = useState<{ name: string; code: string } | null>(null);
+  useEffect(() => {
+    fetch("/api/admin/locations")
+      .then((r) => r.json())
+      .then((res) => {
+        if (!res.success || !Array.isArray(res.data)) return;
+        const def = res.data.find((l: { isDefault: boolean }) => l.isDefault) ?? res.data[0];
+        if (def) setDefaultLocation({ name: def.name, code: def.code });
+      })
+      .catch(() => {});
+  }, []);
 
   // Filtered users
   const filteredUsers = useMemo(() => {
@@ -78,7 +92,6 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
     setFormPassword("");
     setFormConfirmPassword("");
     setFormRole("CASHIER");
-    setFormLocations(["Mektas Supers"]);
     setModalOpen(true);
   };
 
@@ -97,7 +110,6 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
     setFormPassword("");
     setFormConfirmPassword("");
     setFormRole(item.role);
-    setFormLocations(["Mektas Supers"]);
     setModalOpen(true);
   };
 
@@ -498,7 +510,7 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
                               defaultChecked
                               className="h-3.5 w-3.5 rounded text-indigo-650"
                             />
-                            <span>Mektas Supers (BL0001)</span>
+                            <span>{defaultLocation ? `${defaultLocation.name} (${defaultLocation.code})` : "—"}</span>
                           </label>
                         </div>
                       </div>
@@ -565,7 +577,7 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-450 font-bold">Locations:</span>
-                  <span className="font-semibold text-zinc-700">Mektas Supers (BL0001)</span>
+                  <span className="font-semibold text-zinc-700">{defaultLocation ? `${defaultLocation.name} (${defaultLocation.code})` : "—"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-450 font-bold">Status:</span>

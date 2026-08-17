@@ -33,6 +33,12 @@ export async function POST(req: NextRequest) {
       return apiError("INVALID_INPUT", "Name and discount amount are required.", { status: 400 });
     }
 
+    let location: string = body.location || "";
+    if (!location) {
+      const defaultLocation = await prisma.location.findFirst({ where: { isDefault: true } });
+      location = defaultLocation?.name ?? (await prisma.location.findFirst())?.name ?? "";
+    }
+
     const discount = await prisma.discount.create({
       data: {
         name: body.name,
@@ -44,7 +50,7 @@ export async function POST(req: NextRequest) {
         brand: body.brand || null,
         category: body.category || null,
         products: body.products || [], // JSON array
-        location: body.location || "Mektas Supers",
+        location,
         sellingPriceGroup: body.sellingPriceGroup || "All",
         applyInCustomerGroups: !!body.applyInCustomerGroups,
         isActive: body.isActive !== false,

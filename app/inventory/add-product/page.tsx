@@ -64,6 +64,20 @@ export default function AddProductPage() {
     setSku(randomSku);
   }, []);
 
+  // Real default business location — was a hardcoded "Mektas Supers
+  // (BL0001)" that didn't match the actual configured location.
+  const [defaultLocation, setDefaultLocation] = useState<{ name: string; code: string } | null>(null);
+  useEffect(() => {
+    fetch("/api/admin/locations")
+      .then((r) => r.json())
+      .then((res) => {
+        if (!res.success || !Array.isArray(res.data)) return;
+        const def = res.data.find((l: { isDefault: boolean }) => l.isDefault) ?? res.data[0];
+        if (def) setDefaultLocation({ name: def.name, code: def.code });
+      })
+      .catch(() => {});
+  }, []);
+
   // Sync pricing calculations
   const calculateSellingPrice = (purchase: string, margin: string) => {
     const p = parseFloat(purchase) || 0;
@@ -315,7 +329,9 @@ export default function AddProductPage() {
                   <HelpCircle className="h-3.5 w-3.5 text-zinc-400" />
                 </div>
                 <div className="h-9 w-full rounded border border-zinc-300 px-3 flex items-center bg-zinc-50 text-xs font-semibold text-zinc-650">
-                  <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded mr-1">Mektas Supers (BL0001)</span>
+                  <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded mr-1">
+                    {defaultLocation ? `${defaultLocation.name} (${defaultLocation.code})` : "—"}
+                  </span>
                 </div>
               </div>
 
@@ -346,7 +362,7 @@ export default function AddProductPage() {
                   onChange={(e) => setOpeningStock(e.target.value)}
                   className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
                 />
-                <p className="text-xs text-zinc-450 mt-1">Goes straight into inventory at Mektas Supers — leave at 0 to add stock later.</p>
+                <p className="text-xs text-zinc-450 mt-1">Goes straight into inventory at {defaultLocation?.name ?? "the default location"} — leave at 0 to add stock later.</p>
               </div>
 
             </div>

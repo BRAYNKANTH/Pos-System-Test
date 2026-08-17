@@ -18,10 +18,18 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   });
   if (!transaction) notFound();
 
-  // Load settings and location details to fill in receipt header details
+  // Load settings and location details to fill in receipt header details.
+  // The default-location fallback is wrapped in an async IIFE rather than
+  // `queryA || queryB` — a Promise is always truthy, so `||` between two
+  // unresolved promises always picks the first one and the fallback never
+  // actually runs (a real, previously-undetected bug: if no location is
+  // ever marked isDefault, this silently fell through to `null` instead
+  // of using the second query).
   const [bizSettings, defaultLocation, invoiceSettings] = await Promise.all([
     prisma.businessSettings.findUnique({ where: { id: "default" } }),
-    prisma.location.findFirst({ where: { isDefault: true } }) || prisma.location.findFirst(),
+    (async () =>
+      (await prisma.location.findFirst({ where: { isDefault: true } })) ??
+      (await prisma.location.findFirst()))(),
     prisma.invoiceSettings.findUnique({ where: { id: "default" } }),
   ]);
 
@@ -32,7 +40,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   const headingText = defaultLayout?.invoiceHeading || "Sales Receipt";
 
   const bizData = (bizSettings?.data as any) ?? {};
-  const bizName = bizData.bizName ?? "Mektas Supers";
+  const bizName = bizData.bizName ?? defaultLocation?.name ?? "";
   const taxNo = bizData.tax1No || bizData.tax2No || "";
 
   // Load product catalog to show full readable names on receipt rather than raw SKU codes

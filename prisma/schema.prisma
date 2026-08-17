@@ -327,7 +327,10 @@ model Discount {
   brand                 String?
   category              String?
   products              Json     // JSON array of DBProduct structure: {sku, name}
-  location              String   @default("Mektas Supers")
+  // No hardcoded default — the one creation path (app/api/sales/discounts/
+  // route.ts) always resolves a real Location row before inserting, so
+  // this default is a safety net only, never meant to actually surface.
+  location              String   @default("")
   sellingPriceGroup     String   @default("All")
   applyInCustomerGroups Boolean  @default(false)
   isActive              Boolean  @default(true)

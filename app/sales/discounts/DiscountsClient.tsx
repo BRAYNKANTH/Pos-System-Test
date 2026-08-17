@@ -59,7 +59,8 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
   const [formProducts, setFormProducts] = useState<DBProduct[]>([]);
   const [formBrand, setFormBrand] = useState("");
   const [formCategory, setFormCategory] = useState("");
-  const [formLocation, setFormLocation] = useState("Mektas Supers");
+  const [formLocation, setFormLocation] = useState("");
+  const [locations, setLocations] = useState<{ id: string; name: string; isDefault: boolean }[]>([]);
   const [formPriority, setFormPriority] = useState("1");
   const [formDiscountType, setFormDiscountType] = useState("Percentage");
   const [formDiscountAmount, setFormDiscountAmount] = useState("");
@@ -85,6 +86,21 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
     const min = String(date.getMinutes()).padStart(2, "0");
     return `${d}-${m}-${y} ${hr}:${min}`;
   };
+
+  // Real business locations — was two hardcoded, made-up options
+  // ("Mektas Supers" and a "Branch 2" that didn't match either actual
+  // location on record).
+  useEffect(() => {
+    fetch("/api/admin/locations")
+      .then((r) => r.json())
+      .then((res) => {
+        if (!res.success || !Array.isArray(res.data)) return;
+        setLocations(res.data);
+        const def = res.data.find((l: { isDefault: boolean }) => l.isDefault) ?? res.data[0];
+        if (def) setFormLocation((prev) => prev || def.name);
+      })
+      .catch(() => {});
+  }, []);
 
   const categories = useMemo(() => {
     return Array.from(new Set(products.map((p) => p.category).filter(Boolean))) as string[];
@@ -131,7 +147,7 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
     setFormProducts([]);
     setFormBrand("");
     setFormCategory("");
-    setFormLocation("Mektas Supers");
+    setFormLocation(locations.find((l) => l.isDefault)?.name ?? locations[0]?.name ?? "");
     setFormPriority("1");
     setFormDiscountType("Percentage");
     setFormDiscountAmount("");
@@ -597,8 +613,10 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
                     onChange={(e) => setFormLocation(e.target.value)}
                     className="h-10 w-full rounded border border-zinc-300 px-3 text-xs font-semibold bg-white outline-none focus:border-indigo-500"
                   >
-                    <option value="Mektas Supers">Mektas Supers</option>
-                    <option value="Branch 2">Branch 2</option>
+                    {locations.length === 0 && <option value="">No locations configured</option>}
+                    {locations.map((l) => (
+                      <option key={l.id} value={l.name}>{l.name}</option>
+                    ))}
                   </select>
                 </div>
 

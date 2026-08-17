@@ -78,6 +78,7 @@ export default function PosPage() {
   } = useCartStore();
 
   const [currentTime, setCurrentTime] = useState("");
+  const [storeLocationName, setStoreLocationName] = useState("");
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>([]);
   const [recentTxs, setRecentTxs] = useState<RecentTx[]>([]);
@@ -118,6 +119,11 @@ export default function PosPage() {
     fetch("/api/pos/tax-rate")
       .then((r) => r.json())
       .then((body) => { if (body.success) setTaxRate(body.data.rate); });
+    // Was a hardcoded "Mektas Supers" literal — the real default location
+    // (whichever one is actually marked default in Business Locations).
+    fetch("/api/business-info")
+      .then((r) => r.json())
+      .then((body) => { if (body.success && body.data?.defaultLocation) setStoreLocationName(body.data.defaultLocation.name); });
   }, []);
 
   // Modals state
@@ -476,7 +482,7 @@ export default function PosPage() {
           </Link>
           <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
             <MapPin className="h-3.5 w-3.5 text-indigo-500" />
-            <span>Store: <strong className="text-zinc-900 dark:text-white">Mektas Supers</strong></span>
+            <span>Store: <strong className="text-zinc-900 dark:text-white">{storeLocationName || "—"}</strong></span>
           </div>
           <div className="flex items-center gap-1.5 rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400">
             <Clock className="h-3 w-3" />

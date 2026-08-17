@@ -50,7 +50,7 @@ export function AppSidebar({
   initialBizName?: string;
 }) {
   const pathname = usePathname();
-  const [businessName, setBusinessName] = useState(initialBizName ?? "Mektas Supers");
+  const [businessName, setBusinessName] = useState(initialBizName ?? "");
 
   useEffect(() => {
     // If parent supplied it, sync the state and cache it
@@ -64,7 +64,12 @@ export function AppSidebar({
       setBusinessName(cached);
       return;
     }
-    fetch("/api/admin/business-settings")
+    // /api/business-info, not /api/admin/business-settings — the admin
+    // endpoint requires SETTINGS_MANAGE, which cashiers don't have. That
+    // 403 was being silently swallowed here, so cashiers never saw a real
+    // business name at all — just whatever hardcoded fallback shipped in
+    // the code, permanently, regardless of what Settings actually said.
+    fetch("/api/business-info")
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data?.bizName) {

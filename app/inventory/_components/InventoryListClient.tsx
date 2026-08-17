@@ -99,6 +99,18 @@ export default function InventoryListClient({
   const [openingStockDate, setOpeningStockDate] = useState("");
   const [openingStockNote, setOpeningStockNote] = useState("");
 
+  // Real business locations — this list was previously a single
+  // hardcoded "Mektas Supers" option everywhere a location was shown or
+  // pickable, which didn't even match the actual configured location.
+  const [locations, setLocations] = useState<{ id: string; name: string; code: string; isDefault: boolean }[]>([]);
+  useEffect(() => {
+    fetch("/api/admin/locations")
+      .then((r) => r.json())
+      .then((res) => { if (res.success && Array.isArray(res.data)) setLocations(res.data); })
+      .catch(() => {});
+  }, []);
+  const defaultLocation = locations.find((l) => l.isDefault) ?? locations[0] ?? null;
+
   useEffect(() => {
     if (editingStockItem) {
       const urlParams = new URLSearchParams(window.location.search);
@@ -507,7 +519,9 @@ export default function InventoryListClient({
                   className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
                 >
                   <option value="All">All</option>
-                  <option value="Mektas Supers">Mektas Supers</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.name}>{l.name}</option>
+                  ))}
                 </select>
               </div>
 
@@ -730,7 +744,7 @@ export default function InventoryListClient({
                           <td className="px-4 py-3">
                             <p className="font-semibold text-zinc-800 leading-tight">{item.name}</p>
                           </td>
-                          <td className="px-4 py-3"><span className="text-zinc-505 font-semibold">Mektas Supers</span></td>
+                          <td className="px-4 py-3"><span className="text-zinc-505 font-semibold">{defaultLocation?.name ?? "—"}</span></td>
                           <td className="px-4 py-3 text-right font-mono font-semibold text-zinc-650">{fmtPrice(purchasePrice)}</td>
                           <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600">{fmtPrice(item.unitPrice)}</td>
                           <td className="px-4 py-3 text-center">
@@ -783,7 +797,7 @@ export default function InventoryListClient({
                 
                 {/* Location text */}
                 <div className="text-sm font-semibold text-zinc-700">
-                  Location: <span className="text-zinc-800 font-bold">Mektas Supers (BL0001)</span>
+                  Location: <span className="text-zinc-800 font-bold">{defaultLocation ? `${defaultLocation.name} (${defaultLocation.code})` : "—"}</span>
                 </div>
 
                 {/* Opening Stock Table */}

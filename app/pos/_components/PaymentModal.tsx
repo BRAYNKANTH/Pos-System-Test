@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCartStore } from "@/lib/pos/cart-store";
 import { Button } from "@/components/ui/button";
@@ -36,12 +36,28 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
   const [receiptData, setReceiptData] = useState<any>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
 
-  // Sync initial tender amount when total changes (e.g. before user starts typing)
+  // Reset to a single cash tender pre-filled with the current total every
+  // time the modal transitions from closed to open — not every time
+  // `total` changes. This component is never unmounted (it just renders
+  // null while closed), so without this, leftover tender state from a
+  // PREVIOUS transaction stuck around: the amount only auto-filled when
+  // it happened to be exactly 0, which is only true before the very
+  // first payment of a session. Every "Pay Now" after that opened the
+  // modal with the last sale's leftover tender amount still in place —
+  // if the new cart's total was higher, "Finalize & Print" stayed
+  // disabled (totalPaying < total) with no visible reason why, which is
+  // exactly what read as "the pay now button isn't working."
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (tenders.length === 1 && tenders[0].amount === 0) {
+    if (open && !wasOpenRef.current) {
       setTenders([{ method: "cash", amount: total }]);
+      setSellNote("");
+      setStaffNote("");
+      setError(null);
     }
-  }, [total]);
+    wasOpenRef.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Load receipt details on mount/update when transaction is successfully checked out
   useEffect(() => {
@@ -55,8 +71,6 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
       .catch((err) => console.error("Failed to load receipt details:", err))
       .finally(() => setLoadingReceipt(false));
   }, [completedTxId]);
-
-  if (!open) return null;
 
   const totalPaying = Math.round(tenders.reduce((sum, t) => sum + Number(t.amount || 0), 0) * 100) / 100;
   const balance = Math.max(0, Math.round((total - totalPaying) * 100) / 100);
@@ -182,6 +196,19 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, completedTxId, submitting, totalPaying, total]);
 
+  // This must come after every hook (useState/useRef/useEffect above) and
+  // before any plain logic that doesn't need to run while closed. It used
+  // to sit right after the second useEffect, with the keyboard-listener
+  // useEffect declared below it — meaning that hook only ran while `open`
+  // was true, so React saw a different number of hooks between the
+  // "closed" and "open" renders and crashed with "Rendered more hooks
+  // than during the previous render" on literally the first Pay Now
+  // click of any session. Hooks must always run unconditionally, in the
+  // same order, every render — this component is never unmounted (it
+  // just renders null while closed), so the early return has to come
+  // after all of them, not in the middle.
+  if (!open) return null;
+
   // Fast cash presets handler
   function handleSetExactCash() {
     setTenders([{ method: "cash", amount: total }]);
@@ -228,9 +255,9 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
               <div className="printable-receipt bg-white text-zinc-950 border border-zinc-200 p-5 rounded-lg shadow-sm font-mono text-[11px] leading-relaxed w-[310px] select-none dark:bg-white dark:text-zinc-950 print:border-0 print:shadow-none print:w-[80mm] print:p-2">
                 {/* Header */}
                 <div className="text-center space-y-1 mb-3">
-                  <h4 className="text-xs font-extrabold uppercase tracking-wide text-zinc-900">Mektas Supers</h4>
-                  <p className="text-[10px] text-zinc-600">Colombo Branch</p>
-                  {receiptData.tax > 0 && <p className="text-[10px] font-bold text-zinc-700">TAX ID: 102-392-120</p>}
+                  <h4 className="text-xs font-extrabold uppercase tracking-wide text-zinc-900">{receiptData.bizName || "Sales Receipt"}</h4>
+                  {receiptData.locationName && <p className="text-[10px] text-zinc-600">{receiptData.locationName}</p>}
+                  {receiptData.tax > 0 && receiptData.taxNo && <p className="text-[10px] font-bold text-zinc-700">TAX ID: {receiptData.taxNo}</p>}
                   <div className="pt-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider bg-zinc-100 px-2 py-0.5 rounded text-zinc-800 border border-zinc-200">
                       {receiptData.status === "voided" ? "Void Invoice" : receiptData.headingText}
