@@ -43,8 +43,16 @@ export default async function CustomersPage({
             href={`/customers/${c.id}`}
             className="flex items-center justify-between gap-2 p-3 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900"
           >
-            <span>{c.name}</span>
-            <span className="text-xs text-zinc-400">{c.email ?? c.phone ?? "—"}</span>
+            <div className="flex items-center gap-2">
+              <span className="font-bold">{c.name}</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                🏆 {c.loyaltyTier || "Bronze"}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-zinc-400">
+              <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">{c.loyaltyPoints ?? 0} Pts</span>
+              <span>{c.email ?? c.phone ?? "—"}</span>
+            </div>
           </Link>
         ))}
       </div>

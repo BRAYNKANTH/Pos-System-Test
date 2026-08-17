@@ -24,6 +24,27 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
         </p>
       </div>
 
+      {/* Loyalty Card Card */}
+      <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-900 to-indigo-950 text-white shadow-md space-y-2 border border-indigo-800">
+        <div className="flex justify-between items-center">
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-300">
+            🏆 {customer.loyaltyTier || "Bronze"} Member
+          </span>
+          <span className="text-xs font-mono font-bold bg-indigo-800/80 px-2 py-0.5 rounded text-indigo-200">
+            Loyalty Card
+          </span>
+        </div>
+        <div className="flex justify-between items-baseline pt-1">
+          <div>
+            <span className="text-2xl font-black font-mono">{customer.loyaltyPoints ?? 0}</span>
+            <span className="text-xs text-indigo-300 ml-1">Points</span>
+          </div>
+          <span className="text-xs font-semibold text-emerald-400">
+            = Rs {((customer.loyaltyPoints ?? 0) * 0.1).toFixed(2)} Redeemable Value
+          </span>
+        </div>
+      </div>
+
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold">Orders</h2>

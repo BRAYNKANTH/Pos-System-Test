@@ -101,6 +101,12 @@ export function CartPanel({
       });
   }, []);
 
+  const [customerLoyalty, setCustomerLoyalty] = useState<{
+    loyaltyPoints: number;
+    loyaltyTier: string;
+    maxDiscountValue: number;
+  } | null>(null);
+
   useEffect(() => {
     fetch("/api/customers")
       .then((r) => r.json())
@@ -116,6 +122,21 @@ export function CartPanel({
         });
     }
   }, [propProducts]);
+
+  useEffect(() => {
+    if (!customerId) {
+      setCustomerLoyalty(null);
+      return;
+    }
+    fetch(`/api/customers/loyalty?customerId=${customerId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          setCustomerLoyalty(res.data);
+        }
+      })
+      .catch(() => {});
+  }, [customerId]);
 
   const products = propProducts ?? localProducts;
 
@@ -250,6 +271,29 @@ export function CartPanel({
           <span>New</span>
         </button>
       </div>
+
+      {/* Customer Loyalty Tier & Points Badge */}
+      {customerLoyalty && (
+        <div className="mb-2.5 flex items-center justify-between p-2 rounded-lg bg-indigo-50/70 border border-indigo-200 text-xs dark:bg-indigo-950/30 dark:border-indigo-900/40">
+          <div className="flex items-center gap-1.5 font-bold text-indigo-900 dark:text-indigo-300">
+            <span className="px-1.5 py-0.5 rounded bg-indigo-200 text-indigo-800 text-[10px] font-extrabold uppercase dark:bg-indigo-900 dark:text-indigo-200">
+              🏆 {customerLoyalty.loyaltyTier} Member
+            </span>
+            <span>{customerLoyalty.loyaltyPoints} Pts (Rs {customerLoyalty.maxDiscountValue.toFixed(2)})</span>
+          </div>
+
+          {customerLoyalty.maxDiscountValue > 0 && (
+            <button
+              onClick={() => {
+                setDiscount({ type: "amount", value: customerLoyalty.maxDiscountValue });
+              }}
+              className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] transition shadow-2xs"
+            >
+              Apply Loyalty Disc
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Quick Product Search & Scan ────────────────────────────────────── */}
       <div className="relative mb-2.5 flex gap-1.5">
