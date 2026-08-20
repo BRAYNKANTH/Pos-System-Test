@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { sendToZoho } from "./zohoClient";
+import { isModuleEnabled } from "@/lib/plan";
 
 const MAX_RETRIES = 5;
 const BASE_BACKOFF_MS = 2000;
@@ -17,6 +18,13 @@ function nextRetryDue(retryCount: number, lastAttemptAt: Date | null): boolean {
  * interval by scripts/worker.ts (`npm run worker`), a separate process
  * from the Next.js server since this isn't part of the request lifecycle. */
 export async function processSyncQueue() {
+  // Every current entity type this queue handles is Zoho-bound — nothing
+  // should ever get queued for a deployment without that module (see
+  // enqueueSyncJob's own guard), but this is a second, independent line
+  // of defense: even leftover rows from before the module was disabled
+  // stay untouched rather than erroring against missing Zoho credentials.
+  if (!isModuleEnabled("zoho")) return { checked: 0, processed: 0 };
+
   const candidates = await prisma.syncQueueJob.findMany({
     where: { status: { in: ["pending", "failed"] }, retryCount: { lt: MAX_RETRIES } },
     orderBy: { createdAt: "asc" },
@@ -30,7 +38,7 @@ export async function processSyncQueue() {
     processed++;
     try {
       await sendToZoho({
-        entityType: job.entityType as "transaction" | "bill" | "stock_adjustment" | "customer",
+        entityType: job.entityType as "transaction" | "bill" | "stock_adjustment" | "customer" | "inventory_item",
         entityId: job.entityId,
         idempotencyKey: job.id, // applyIdempotencyKey — job id is stable across retries
       });

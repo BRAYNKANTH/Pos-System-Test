@@ -22,7 +22,11 @@ interface InvoiceLayout {
   name: string;
   design: string;
   showLetterHead: boolean;
-  
+  /** Base64 data URL of the uploaded letterhead image, or null if none
+   * has been uploaded yet. Shared across the app wherever this layout's
+   * invoices/receipts print — see app/api/pos/receipt/[id]/route.ts. */
+  letterHeadImage: string | null;
+
   // Headings
   invoiceHeading: string;
   headingSuffixNotPaid: string;
@@ -122,6 +126,7 @@ const INITIAL_LAYOUTS: InvoiceLayout[] = [
     name: "Default",
     design: "Slim (Recommended for thermal line receipt printer, 80mm paper size)",
     showLetterHead: true,
+    letterHeadImage: null,
     invoiceHeading: "Invoice",
     headingSuffixNotPaid: "",
     headingSuffixPaid: "",
@@ -331,6 +336,7 @@ export default function InvoiceSettingsClient() {
       name: "",
       design: "Slim (Recommended for thermal line receipt printer, 80mm paper size)",
       showLetterHead: true,
+      letterHeadImage: null,
       invoiceHeading: "Invoice",
       headingSuffixNotPaid: "",
       headingSuffixPaid: "",
@@ -399,6 +405,38 @@ export default function InvoiceSettingsClient() {
   const handleOpenEditLayout = (layout: InvoiceLayout) => {
     setEditingLayout(layout);
     setLayoutEditorOpen(true);
+  };
+
+  const [letterHeadError, setLetterHeadError] = useState("");
+
+  // Stored as a base64 data URL directly in this layout's JSON blob — no
+  // file storage/upload endpoint exists anywhere in this app (no S3, no
+  // local disk that would survive a redeploy), so this is the realistic
+  // option: it rides along with the rest of the layout settings through
+  // the same PATCH /api/admin/invoice-settings save this form already
+  // does. Previously the file input was permanently disabled with no
+  // backend at all.
+  const handleLetterHeadUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file || !editingLayout) return;
+    setLetterHeadError("");
+
+    if (!["image/jpeg", "image/png", "image/gif"].includes(file.type)) {
+      setLetterHeadError("Only JPEG, GIF, or PNG images are allowed.");
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setLetterHeadError("Image must be 1 MB or smaller.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setEditingLayout((prev) => (prev ? { ...prev, letterHeadImage: reader.result as string } : prev));
+    };
+    reader.onerror = () => setLetterHeadError("Failed to read the file. Please try again.");
+    reader.readAsDataURL(file);
   };
 
   const handleSaveLayout = (e: React.FormEvent) => {
@@ -551,11 +589,30 @@ export default function InvoiceSettingsClient() {
                 <label className="block text-xs font-extrabold text-zinc-700 uppercase tracking-wider mb-1.5">
                   Letter Head:
                 </label>
+                {editingLayout.letterHeadImage && (
+                  <div className="mb-2 flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- base64 data URL, not a static/remote asset next/image can optimize */}
+                    <img
+                      src={editingLayout.letterHeadImage}
+                      alt="Letter head preview"
+                      className="h-14 w-auto rounded border border-zinc-200 object-contain bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditingLayout({ ...editingLayout, letterHeadImage: null })}
+                      className="text-xs font-bold text-red-650 hover:text-red-750 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
                 <input
                   type="file"
-                  disabled
-                  className="block w-full text-xs text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-not-allowed"
+                  accept="image/jpeg,image/png,image/gif"
+                  onChange={handleLetterHeadUpload}
+                  className="block w-full text-xs text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
                 />
+                {letterHeadError && <p className="text-xs text-red-650 font-semibold mt-1">{letterHeadError}</p>}
                 <span className="text-xs text-zinc-400 mt-1 block whitespace-pre-line leading-relaxed">
                   Upload a letterhead image containing all details of your business. Letterhead will be added at the top of the invoices.
                   {"\n"}Max 1 MB, jpeg,gif,png formats only.

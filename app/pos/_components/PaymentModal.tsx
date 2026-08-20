@@ -275,6 +275,14 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
               <div className="printable-receipt bg-white text-zinc-950 border border-zinc-200 p-5 rounded-lg shadow-sm font-mono text-[11px] leading-relaxed w-[310px] select-none dark:bg-white dark:text-zinc-950 print:border-0 print:shadow-none print:w-[80mm] print:p-2">
                 {/* Header */}
                 <div className="text-center space-y-1 mb-3">
+                  {receiptData.letterHeadImage && (
+                    // eslint-disable-next-line @next/next/no-img-element -- base64 data URL from settings, not a static/remote asset
+                    <img
+                      src={receiptData.letterHeadImage}
+                      alt="Letter head"
+                      className="mx-auto max-h-16 w-auto object-contain"
+                    />
+                  )}
                   <h4 className="text-xs font-extrabold uppercase tracking-wide text-zinc-900">{receiptData.bizName || "Sales Receipt"}</h4>
                   {receiptData.locationName && <p className="text-[10px] text-zinc-600">{receiptData.locationName}</p>}
                   {receiptData.tax > 0 && receiptData.taxNo && <p className="text-[10px] font-bold text-zinc-700">TAX ID: {receiptData.taxNo}</p>}

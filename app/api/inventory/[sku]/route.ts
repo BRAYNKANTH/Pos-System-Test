@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
+import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
 
 // DELETE /api/inventory/[sku] - Delete a product
 export async function DELETE(
@@ -77,6 +78,18 @@ export async function PATCH(
         ...(name !== undefined && { name }),
       },
     });
+
+    // Only push to Zoho when something Zoho actually cares about changed
+    // (name/price) — this route is also used for purchase-price-only
+    // edits that don't need a round trip.
+    if (unitPrice !== undefined || name !== undefined) {
+      await enqueueSyncJob({
+        entityType: "inventory_item",
+        entityId: updated.id,
+        payload: { sku: updated.sku, name: updated.name },
+      });
+    }
+
     return apiSuccess(updated);
   } catch (err: any) {
     console.error("Failed to update product", err);

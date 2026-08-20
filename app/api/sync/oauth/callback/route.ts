@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { exchangeCodeForToken, isDataCenter } from "@/lib/sync/zohoClient";
+import { isModuleEnabled } from "@/lib/plan";
 
 // OAuth 2.0 callback — Zoho redirects here with ?code=...&state=... after
 // the admin authorizes access. `state` carries back the data center
@@ -8,8 +9,12 @@ import { exchangeCodeForToken, isDataCenter } from "@/lib/sync/zohoClient";
 // exchange hits the same data center's token endpoint the auth request
 // went to — required for accounts outside the "com" data center.
 export async function GET(req: NextRequest) {
-  const user = await getCurrentUser();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
+  if (!isModuleEnabled("zoho")) {
+    return NextResponse.redirect(new URL("/", appUrl));
+  }
+
+  const user = await getCurrentUser();
   if (!user) return NextResponse.redirect(new URL("/login", appUrl));
 
   const code = req.nextUrl.searchParams.get("code");

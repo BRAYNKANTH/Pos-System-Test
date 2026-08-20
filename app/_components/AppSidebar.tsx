@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { isModuleEnabled } from "@/lib/plan";
 import {
   Home as HomeIcon,
   Users,
@@ -179,8 +180,8 @@ export function AppSidebar({
               {navLink("/inventory", "List Products")}
               {navLink("/inventory/add-product", "Add Product")}
               {navLink("/inventory/print-labels", "Print Labels")}
-              {navLink("/inventory/categories", "Categories", true)}
-              {navLink("/inventory/brands", "Brands", true)}
+              {navLink("/inventory/categories", "Categories")}
+              {navLink("/inventory/brands", "Brands")}
             </div>
           </details>
 
@@ -277,7 +278,7 @@ export function AppSidebar({
               {navLink("/admin/settings/barcode", "Barcode Settings")}
               {navLink("/admin/settings/printers", "Receipt Printers")}
               {navLink("/admin/settings/tax", "Tax Rates")}
-              {navLink("/admin/settings/integrations", "Zoho Integration")}
+              {isModuleEnabled("zoho") && navLink("/admin/settings/integrations", "Zoho Integration")}
               {navLink("/admin/settings/roles", "Roles")}
             </div>
           </details>

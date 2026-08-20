@@ -35,6 +35,13 @@ export async function voidTransaction(transactionId: string, actorId: string) {
         where: { sku: item.sku },
         data: { qtyOnHand: { increment: item.qty } },
       });
+      // Not synced to Zoho as its own Inventory Adjustment — same reasoning
+      // as the original sale's deduction (see deductStockOnSale in lib/
+      // inventory/stock.ts): a credit note is enqueued for this void below
+      // (via the route, once a bill exists), and Zoho auto-restocks
+      // inventory-tracked items on a credit note the same way it
+      // auto-decrements them on an invoice. Syncing this too would
+      // double-restock in Zoho.
       await tx.stockAdjustment.create({
         data: {
           sku: item.sku,
@@ -69,6 +76,6 @@ export async function voidTransaction(transactionId: string, actorId: string) {
       tx,
     );
 
-    return updatedTransaction;
+    return { ...updatedTransaction, billId: transaction.bill?.id ?? null };
   }, TRANSACTION_OPTIONS);
 }

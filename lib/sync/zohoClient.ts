@@ -266,7 +266,7 @@ async function resolveContactId(
  * `idempotencyKey` prevents duplicate records on retry, sent as Zoho's
  * `X-ZB-IDEMPOTENCY-KEY` header where supported. */
 export async function sendToZoho(params: {
-  entityType: "transaction" | "bill" | "stock_adjustment" | "customer";
+  entityType: "transaction" | "bill" | "stock_adjustment" | "customer" | "inventory_item";
   entityId: string;
   idempotencyKey: string;
 }) {
@@ -417,6 +417,36 @@ export async function sendToZoho(params: {
         }),
       );
       return result;
+    }
+
+    case "inventory_item": {
+      // Fired whenever a product is created or edited (see
+      // app/api/inventory/route.ts POST and app/api/inventory/[sku]/route.ts
+      // PATCH) — unlike resolveItemId (used by the stock_adjustment case,
+      // which only needs SOME id and deliberately never re-pushes changes),
+      // this path is specifically about pushing the product's current
+      // name/price to Zoho, so an already-synced item still needs an
+      // update call, not a skip.
+      const item = await prisma.inventoryItem.findUniqueOrThrow({ where: { id: params.entityId } });
+
+      if (item.zohoItemId) {
+        const result = await zohoFetch(connection, `/items/${item.zohoItemId}`, {
+          method: "PUT",
+          headers: idempotencyHeader,
+          body: JSON.stringify({ name: item.name, rate: Number(item.unitPrice) }),
+        });
+        return result;
+      }
+
+      const itemId = await findOrCreateItem(connection, {
+        sku: item.sku,
+        name: item.name,
+        unitPrice: Number(item.unitPrice),
+      });
+      await safeStore("inventory_item", () =>
+        prisma.inventoryItem.update({ where: { id: item.id }, data: { zohoItemId: itemId } }),
+      );
+      return { item_id: itemId };
     }
 
     default:

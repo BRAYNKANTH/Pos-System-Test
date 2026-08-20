@@ -26,6 +26,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     ? invData.layouts.find((l: any) => l.isDefault)
     : null;
   const headingText = defaultLayout?.invoiceHeading || "Sales Receipt";
+  const letterHeadImage = defaultLayout?.showLetterHead ? (defaultLayout?.letterHeadImage ?? null) : null;
 
   const bizData = (businessSettings?.data as any) ?? {};
   const bizName = bizData.bizName || defaultLocation?.name || "";
@@ -34,6 +35,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return apiSuccess({
     id: transaction.id,
     headingText,
+    letterHeadImage,
     bizName,
     locationName: defaultLocation?.name ?? null,
     taxNo,

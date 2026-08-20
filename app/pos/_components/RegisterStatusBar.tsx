@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lock, Unlock, PlusCircle, MinusCircle, X } from "lucide-react";
+import { Lock, Unlock, PlusCircle, MinusCircle, X, Eye, Printer } from "lucide-react";
+import { RegisterSummaryReport, type RegisterSummary } from "./RegisterSummaryReport";
 
 type RegisterSession = {
   id: string;
@@ -22,6 +23,27 @@ export function RegisterStatusBar() {
   const [cashReason, setCashReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // Live "Current Register" view — the reconciliation breakdown, viewable
+  // any time while the till is open, not just at close.
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [summary, setSummary] = useState<RegisterSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  // Shown once a close actually succeeds — the full report with the
+  // recorded closing count + cash difference, instead of a plain alert().
+  const [closedSummary, setClosedSummary] = useState<RegisterSummary | null>(null);
+
+  async function fetchSummary(sessionId: string) {
+    setSummaryLoading(true);
+    try {
+      const res = await fetch(`/api/pos/register/${sessionId}/summary`);
+      const body = await res.json();
+      if (body.success) setSummary(body.data);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
 
   async function refresh() {
     try {
@@ -76,19 +98,34 @@ export function RegisterStatusBar() {
         setError(body.error?.message ?? "Failed to close register");
         return;
       }
-      const diff = Number(body.data.cashDifference);
       setCloseModalOpen(false);
       setClosingCount("");
       setCloseNotes("");
+      const closedSessionId = session.id;
       await refresh();
-      alert(
-        diff === 0
-          ? "Register closed. Cash matched exactly."
-          : `Register closed. Cash ${diff > 0 ? "over" : "short"} by ${Math.abs(diff).toFixed(2)}.`,
-      );
+      // Full report with the just-recorded closing count + cash
+      // difference, not a plain alert() — matches the reconciliation
+      // detail the cashier already saw before entering their count.
+      setSummaryLoading(true);
+      const summaryRes = await fetch(`/api/pos/register/${closedSessionId}/summary`);
+      const summaryBody = await summaryRes.json();
+      setSummaryLoading(false);
+      if (summaryBody.success) setClosedSummary(summaryBody.data);
     } finally {
       setBusy(false);
     }
+  }
+
+  function openCloseModal() {
+    if (!session) return;
+    setCloseModalOpen(true);
+    fetchSummary(session.id);
+  }
+
+  function openViewModal() {
+    if (!session) return;
+    setViewModalOpen(true);
+    fetchSummary(session.id);
   }
 
   async function handleCashMovement(e: React.FormEvent) {
@@ -130,6 +167,13 @@ export function RegisterStatusBar() {
             <Unlock className="h-3.5 w-3.5" /> Register Open
           </div>
           <button
+            onClick={openViewModal}
+            className="flex h-9 w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition"
+            title="View Current Register"
+          >
+            <Eye className="h-4 w-4" />
+          </button>
+          <button
             onClick={() => setCashModalOpen("in")}
             className="flex h-9 w-9 items-center justify-center rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition"
             title="Cash In"
@@ -144,7 +188,7 @@ export function RegisterStatusBar() {
             <MinusCircle className="h-4 w-4" />
           </button>
           <button
-            onClick={() => setCloseModalOpen(true)}
+            onClick={openCloseModal}
             className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-xs font-bold transition"
           >
             Close Register
@@ -197,47 +241,112 @@ export function RegisterStatusBar() {
 
       {closeModalOpen && session && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-xs w-full p-5 space-y-4">
-            <div className="flex items-center justify-between border-b pb-2">
-              <h3 className="font-bold text-sm text-zinc-800">Close Register</h3>
-              <button onClick={() => setCloseModalOpen(false)} className="text-zinc-400 hover:text-zinc-600">
+          <div className="bg-white dark:bg-zinc-950 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-150 dark:border-zinc-800 px-5 py-3 shrink-0">
+              <h3 className="font-bold text-sm text-zinc-800 dark:text-zinc-200">Close Register</h3>
+              <button onClick={() => { setCloseModalOpen(false); setSummary(null); }} className="text-zinc-400 hover:text-zinc-600">
                 <X className="h-4.5 w-4.5" />
               </button>
             </div>
-            <p className="text-xs text-zinc-500">
-              Opened by {session.openedBy.name} · float {Number(session.openingFloat).toFixed(2)}
-            </p>
-            {error && <p className="text-xs text-red-600 font-semibold">{error}</p>}
-            <form onSubmit={handleClose} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-zinc-650 mb-1">Actual Cash Counted</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  autoFocus
-                  required
-                  value={closingCount}
-                  onChange={(e) => setClosingCount(e.target.value)}
-                  className="h-9 w-full rounded border border-zinc-300 px-3 text-sm font-mono outline-none focus:border-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-zinc-650 mb-1">Notes (optional)</label>
-                <input
-                  value={closeNotes}
-                  onChange={(e) => setCloseNotes(e.target.value)}
-                  className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
-              >
-                {busy ? "Closing..." : "Close Register"}
+            <div className="overflow-y-auto p-5 space-y-4">
+              {summaryLoading && !summary && (
+                <p className="text-xs text-zinc-500 py-8 text-center">Loading register summary…</p>
+              )}
+              {summary && <RegisterSummaryReport title="Current Register" summary={summary} />}
+
+              {error && <p className="text-xs text-red-600 font-semibold">{error}</p>}
+              <form onSubmit={handleClose} className="space-y-3 border-t border-zinc-150 dark:border-zinc-800 pt-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-650 dark:text-zinc-400 mb-1">Actual Cash Counted</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    autoFocus
+                    required
+                    value={closingCount}
+                    onChange={(e) => setClosingCount(e.target.value)}
+                    className="h-9 w-full rounded border border-zinc-300 dark:border-zinc-700 px-3 text-sm font-mono outline-none focus:border-indigo-500 dark:bg-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-650 dark:text-zinc-400 mb-1">Notes (optional)</label>
+                  <input
+                    value={closeNotes}
+                    onChange={(e) => setCloseNotes(e.target.value)}
+                    className="h-9 w-full rounded border border-zinc-300 dark:border-zinc-700 px-3 text-sm outline-none focus:border-indigo-500 dark:bg-zinc-900"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-bold shadow-sm transition disabled:opacity-50"
+                >
+                  {busy ? "Closing..." : "Close Register"}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live "Current Register" view — same report, viewable any time the
+          till is open, without closing it. */}
+      {viewModalOpen && session && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white dark:bg-zinc-950 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-150 dark:border-zinc-800 px-5 py-3 shrink-0">
+              <h3 className="font-bold text-sm text-zinc-800 dark:text-zinc-200">Current Register</h3>
+              <button onClick={() => { setViewModalOpen(false); setSummary(null); }} className="text-zinc-400 hover:text-zinc-600">
+                <X className="h-4.5 w-4.5" />
               </button>
-            </form>
+            </div>
+            <div className="overflow-y-auto p-5 space-y-4">
+              {summaryLoading && !summary && (
+                <p className="text-xs text-zinc-500 py-8 text-center">Loading register summary…</p>
+              )}
+              {summary && <RegisterSummaryReport title="Current Register" summary={summary} />}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-zinc-150 dark:border-zinc-800 px-5 py-3 shrink-0 print:hidden">
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-indigo-650 hover:bg-indigo-750 text-white text-xs font-bold transition"
+              >
+                <Printer className="h-3.5 w-3.5" /> Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shown right after a successful close — the recorded closing
+          count + cash difference, plus print options. */}
+      {closedSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white dark:bg-zinc-950 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-150 dark:border-zinc-800 px-5 py-3 shrink-0">
+              <h3 className="font-bold text-sm text-zinc-800 dark:text-zinc-200">Register Details</h3>
+              <button onClick={() => setClosedSummary(null)} className="text-zinc-400 hover:text-zinc-600">
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-5 space-y-4">
+              <RegisterSummaryReport title="Register Details" summary={closedSummary} />
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-zinc-150 dark:border-zinc-800 px-5 py-3 shrink-0 print:hidden">
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-indigo-650 hover:bg-indigo-750 text-white text-xs font-bold transition"
+              >
+                <Printer className="h-3.5 w-3.5" /> Print
+              </button>
+              <button
+                onClick={() => setClosedSummary(null)}
+                className="h-9 px-4 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

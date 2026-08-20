@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { creditDefaultLocation } from "@/lib/inventory/locationStock";
+import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
 
 // POST /api/inventory - Create a new product (InventoryItem)
 export async function POST(req: NextRequest) {
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const { item, openingStockAdjustment } = await prisma.$transaction(async (tx) => {
       // Create product
       const item = await tx.inventoryItem.create({
         data: {
@@ -68,8 +69,9 @@ export async function POST(req: NextRequest) {
 
       // If initial stock is provided, record an automated stock adjustment
       // and credit the default location's breakdown to match.
+      let openingStockAdjustment = null;
       if (qtyOnHand > 0) {
-        await tx.stockAdjustment.create({
+        openingStockAdjustment = await tx.stockAdjustment.create({
           data: {
             sku,
             qtyChange: qtyOnHand,
@@ -81,10 +83,28 @@ export async function POST(req: NextRequest) {
         await creditDefaultLocation(tx, sku, qtyOnHand);
       }
 
-      return item;
+      return { item, openingStockAdjustment };
     });
 
-    return apiSuccess(result);
+    // New product → push it into Zoho's item catalog. If there's opening
+    // stock too, sync that as an inventory adjustment right after — order
+    // matters here, since the adjustment sync needs the item to already
+    // exist in Zoho (it'll create it itself if this job hasn't run yet,
+    // but enqueueing item-creation first means that's the uncommon path).
+    await enqueueSyncJob({
+      entityType: "inventory_item",
+      entityId: item.id,
+      payload: { sku: item.sku, name: item.name },
+    });
+    if (openingStockAdjustment) {
+      await enqueueSyncJob({
+        entityType: "stock_adjustment",
+        entityId: openingStockAdjustment.id,
+        payload: { sku: item.sku, qtyChange: qtyOnHand },
+      });
+    }
+
+    return apiSuccess(item);
   } catch (err) {
     console.error("Failed to create product", err);
     return apiError("CREATE_FAILED", "Failed to create product. Please try again.", { status: 500 });

@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { CustomerCombobox } from "@/app/_components/CustomerCombobox";
 
-type Customer = { id: string; name: string; phone?: string };
 type Product = { sku: string; name: string; unitPrice: number };
 type Line = { sku: string; name: string; qty: number; unitPrice: number };
 
@@ -14,10 +14,10 @@ const currencyFmt = (val: number) =>
 
 export default function AddQuotationPage() {
   const router = useRouter();
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
 
   const [customerId, setCustomerId] = useState("");
+  const [customerName, setCustomerName] = useState<string | null>(null);
   const [validUntil, setValidUntil] = useState("");
   const [discount, setDiscount] = useState("0");
   const [lines, setLines] = useState<Line[]>([]);
@@ -29,9 +29,6 @@ export default function AddQuotationPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/customers").then((r) => r.json()).then((res) => {
-      if (res.success) setCustomers(res.data);
-    });
     fetch("/api/pos/products").then((r) => r.json()).then((res) => {
       if (res.success) setProducts(res.data);
     });
@@ -119,16 +116,15 @@ export default function AddQuotationPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">Customer</label>
-              <select
-                value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-                className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
-              >
-                <option value="">Walk-In Customer</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ""}</option>
-                ))}
-              </select>
+              <CustomerCombobox
+                value={customerId || null}
+                displayName={customerName}
+                placeholder="Walk-In Customer"
+                onChange={(c) => {
+                  setCustomerId(c?.id ?? "");
+                  setCustomerName(c?.name ?? null);
+                }}
+              />
             </div>
             <div>
               <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">Valid Until</label>

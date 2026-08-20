@@ -1,8 +1,23 @@
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
+import { isModuleEnabled } from "@/lib/plan";
 import { RetryFailedButton } from "./RetryFailedButton";
 
 export default async function SyncStatusPage() {
+  // Nothing ever gets queued here for a deployment without the Zoho
+  // add-on (enqueueSyncJob no-ops — see lib/plan.ts), so this page would
+  // just show an empty table forever. Say why instead of showing that.
+  if (!isModuleEnabled("zoho")) {
+    return (
+      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-2 px-6 py-16">
+        <h1 className="text-xl font-semibold text-zinc-800">Not Included in Your Plan</h1>
+        <p className="text-sm text-zinc-500">
+          Zoho Books integration isn&apos;t part of this deployment, so there&apos;s no sync activity to show.
+        </p>
+      </main>
+    );
+  }
+
   const jobs = await prisma.syncQueueJob.findMany({
     orderBy: { createdAt: "desc" },
     take: 50,

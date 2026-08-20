@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { buildAuthorizeUrl, isDataCenter } from "@/lib/sync/zohoClient";
+import { isModuleEnabled } from "@/lib/plan";
 
 // connectZohoOAuth — GET /api/sync/oauth/connect?dc=com — starts the
 // OAuth 2.0 flow by redirecting to Zoho's authorize URL for the chosen
@@ -9,6 +10,13 @@ import { buildAuthorizeUrl, isDataCenter } from "@/lib/sync/zohoClient";
 // /admin/settings/integrations lets an admin pick a different one if
 // their Zoho org lives elsewhere, e.g. "in").
 export async function GET(req: NextRequest) {
+  if (!isModuleEnabled("zoho")) {
+    return NextResponse.json(
+      { success: false, error: { code: "MODULE_DISABLED", message: "Zoho integration isn't part of this deployment" } },
+      { status: 403 },
+    );
+  }
+
   const user = await getCurrentUser();
   if (!user) return NextResponse.redirect(new URL("/login", process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin));
   if (!(await checkPermission(user.role, PERMISSIONS.ADMIN_MANAGE_ROLES))) {

@@ -21,11 +21,32 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   try {
     const transaction = await voidTransaction(id, user.id);
+
+    // The original sale still syncs as an Invoice (unchanged — if that job
+    // hasn't run yet, it still will, and that's fine: the credit note
+    // below balances it out, which is how real bookkeeping represents a
+    // "sold then voided" sale — a reversed line, not an erased one).
     await enqueueSyncJob({
       entityType: "transaction",
       entityId: transaction.id,
       payload: { transactionId: transaction.id, status: "voided" },
     });
+
+    // Previously nothing told Zoho this sale was voided at all — the
+    // invoice above would sync as if it were still a completed sale, with
+    // no offsetting record. A quick void has no BillChangeRequest (that's
+    // the OTHER approval path, already wired to this in
+    // app/api/bills/requests/[id]/approve/route.ts), so this is the one
+    // remaining gap: enqueue the same "bill" sync type, which creates a
+    // Zoho credit note for the bill's full amount.
+    if (transaction.billId) {
+      await enqueueSyncJob({
+        entityType: "bill",
+        entityId: transaction.billId,
+        payload: { reason: "Quick void" },
+      });
+    }
+
     return apiSuccess(transaction);
   } catch (err) {
     if (err instanceof TransactionNotFoundError) {

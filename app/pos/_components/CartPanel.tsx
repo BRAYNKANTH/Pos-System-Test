@@ -5,8 +5,8 @@ import { useCartStore, type CartLine } from "@/lib/pos/cart-store";
 import { calculateCart, applyDiscount, applyLineOverridesAndDiscounts, type CartCalculation } from "@/lib/pos/pricing";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { CustomerCombobox } from "@/app/_components/CustomerCombobox";
 import {
-  User,
   Plus,
   Search,
   X,
@@ -23,13 +23,6 @@ import {
   RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
-
-type Customer = {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-};
 
 type Product = {
   sku: string;
@@ -66,7 +59,6 @@ export function CartPanel({
     setCustomer,
   } = useCartStore();
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [productQuery, setProductQuery] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
 
@@ -108,12 +100,6 @@ export function CartPanel({
   } | null>(null);
 
   useEffect(() => {
-    fetch("/api/customers")
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) setCustomers(res.data);
-      });
-
     if (!propProducts) {
       fetch("/api/pos/products")
         .then((r) => r.json())
@@ -202,7 +188,6 @@ export function CartPanel({
       });
       const body = await res.json();
       if (body.success) {
-        setCustomers((prev) => [...prev, body.data]);
         setCustomer({ id: body.data.id, name: body.data.name });
         setNewCustomerName("");
         setNewCustomerEmail("");
@@ -237,31 +222,12 @@ export function CartPanel({
       
       {/* ── Top Bar: Customer Selector + Add Customer ──────────────────────── */}
       <div className="mb-2.5 flex items-center gap-2">
-        <div className="relative flex-1">
-          <div className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-zinc-400">
-            <User className="h-4 w-4 text-indigo-500" />
-          </div>
-          <select
-            id="pos-customer-select"
-            value={customerId || ""}
-            onChange={(e) => {
-              const selected = customers.find((c) => c.id === e.target.value);
-              if (selected) {
-                setCustomer({ id: selected.id, name: selected.name });
-              } else {
-                setCustomer(null);
-              }
-            }}
-            className="h-9 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-8 pr-3 text-xs font-semibold outline-none focus:border-indigo-500 focus:bg-white dark:border-zinc-700 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
-          >
-            <option value="">Walk-In Customer (Default)</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} {c.phone ? `(${c.phone})` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CustomerCombobox
+          id="pos-customer-select"
+          value={customerId || null}
+          displayName={customerName ?? null}
+          onChange={(c) => setCustomer(c)}
+        />
         <button
           onClick={() => setIsCustomerModalOpen(true)}
           className="flex h-9 px-2.5 items-center gap-1 shrink-0 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 text-xs font-bold transition"

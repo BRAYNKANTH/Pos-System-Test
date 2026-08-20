@@ -2,7 +2,6 @@ import { getCurrentUser, hasElevatedAccess } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import { approveAdjustment, AdjustmentNotPendingError, InsufficientStockError } from "@/lib/inventory/stock";
-import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
 
 // approveAdjustment — POST /api/inventory/adjustments/:id/approve —
 // requires the PIN/password re-auth window from /api/auth/admin-reauth
@@ -20,12 +19,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   const { id } = await params;
   try {
+    // Zoho sync is now enqueued inside approveAdjustment itself (lib/
+    // inventory/stock.ts) — every path that actually applies a stock
+    // change syncs from one place, not scattered per-route.
     const adjustment = await approveAdjustment(id, user.id);
-    await enqueueSyncJob({
-      entityType: "stock_adjustment",
-      entityId: adjustment.id,
-      payload: { sku: adjustment.sku, qtyChange: adjustment.qtyChange },
-    });
     return apiSuccess(adjustment);
   } catch (err) {
     if (err instanceof AdjustmentNotPendingError) {

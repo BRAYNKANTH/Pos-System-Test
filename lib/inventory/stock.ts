@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma, TRANSACTION_OPTIONS } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/writeAuditLog";
 import { creditDefaultLocation, debitDefaultLocationBestEffort } from "@/lib/inventory/locationStock";
+import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
 
 export class InsufficientStockError extends Error {
   constructor(public sku: string) {
@@ -44,6 +45,11 @@ export async function deductStockOnSale(
       status: "applied",
     },
   });
+  // Deliberately NOT synced to Zoho as a separate Inventory Adjustment —
+  // the sale itself already reaches Zoho as an Invoice (see the
+  // "transaction" case in zohoClient.ts), and Zoho auto-decrements stock
+  // for invoiced items that have inventory tracking enabled. Syncing this
+  // too would double-deduct the same units in Zoho's own stock count.
 }
 
 /** Post-transaction, fire-and-forget LocationStock sync for a completed
@@ -65,7 +71,7 @@ export function syncLocationStockAfterSale(sku: string, qty: number): void {
  * threshold-checked — receiving stock isn't a "sudden/large" risk the way
  * depleting it or a manual write-off is. */
 export async function increaseStockOnReceipt(sku: string, qty: number) {
-  return prisma.$transaction(async (tx) => {
+  const adjustment = await prisma.$transaction(async (tx) => {
     const result = await tx.inventoryItem.updateMany({
       where: { sku },
       data: { qtyOnHand: { increment: qty } },
@@ -74,7 +80,7 @@ export async function increaseStockOnReceipt(sku: string, qty: number) {
       throw new Error(`Unknown SKU: ${sku}`);
     }
 
-    await tx.stockAdjustment.create({
+    const adjustment = await tx.stockAdjustment.create({
       data: {
         sku,
         qtyChange: qty,
@@ -85,7 +91,14 @@ export async function increaseStockOnReceipt(sku: string, qty: number) {
     });
 
     await creditDefaultLocation(tx, sku, qty);
+    return adjustment;
   }, TRANSACTION_OPTIONS);
+
+  await enqueueSyncJob({
+    entityType: "stock_adjustment",
+    entityId: adjustment.id,
+    payload: { sku, qtyChange: qty },
+  });
 }
 
 function isOverThreshold(
@@ -140,13 +153,13 @@ export async function submitManualAdjustment(params: {
     return { status: "pending" as const, adjustment };
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     if (params.qtyChange < 0) {
-      const result = await tx.inventoryItem.updateMany({
+      const updateResult = await tx.inventoryItem.updateMany({
         where: { sku: params.sku, qtyOnHand: { gte: -params.qtyChange } },
         data: { qtyOnHand: { decrement: -params.qtyChange } },
       });
-      if (result.count === 0) throw new InsufficientStockError(params.sku);
+      if (updateResult.count === 0) throw new InsufficientStockError(params.sku);
       await debitDefaultLocationBestEffort(tx, params.sku, -params.qtyChange);
     } else {
       await tx.inventoryItem.update({
@@ -169,6 +182,13 @@ export async function submitManualAdjustment(params: {
     });
     return { status: "applied" as const, adjustment };
   }, TRANSACTION_OPTIONS);
+
+  await enqueueSyncJob({
+    entityType: "stock_adjustment",
+    entityId: result.adjustment.id,
+    payload: { sku: params.sku, qtyChange: params.qtyChange },
+  });
+  return result;
 }
 
 export class AdjustmentNotPendingError extends Error {
@@ -180,7 +200,7 @@ export class AdjustmentNotPendingError extends Error {
 /** approveAdjustment — admin approves a held adjustment: applies the
  * change (still race-safe for decreases) and writes an audit log entry. */
 export async function approveAdjustment(adjustmentId: string, approverId: string) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const adjustment = await tx.stockAdjustment.findUnique({ where: { id: adjustmentId } });
     if (!adjustment) throw new Error("Adjustment not found");
     if (adjustment.status !== "pending") throw new AdjustmentNotPendingError();
@@ -224,6 +244,13 @@ export async function approveAdjustment(adjustmentId: string, approverId: string
 
     return updated;
   }, TRANSACTION_OPTIONS);
+
+  await enqueueSyncJob({
+    entityType: "stock_adjustment",
+    entityId: result.id,
+    payload: { sku: result.sku, qtyChange: result.qtyChange },
+  });
+  return result;
 }
 
 /** rejectAdjustment — admin rejects with a logged reason; qtyOnHand is

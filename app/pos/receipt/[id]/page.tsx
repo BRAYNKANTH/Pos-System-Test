@@ -38,6 +38,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     ? invData.layouts.find((l: any) => l.isDefault)
     : null;
   const headingText = defaultLayout?.invoiceHeading || "Sales Receipt";
+  const letterHeadImage = defaultLayout?.showLetterHead ? (defaultLayout?.letterHeadImage ?? null) : null;
 
   const bizData = (bizSettings?.data as any) ?? {};
   const bizName = bizData.bizName ?? defaultLocation?.name ?? "";
@@ -68,6 +69,10 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
         
         {/* Business Header */}
         <div className="text-center space-y-1 mb-4">
+          {letterHeadImage && (
+            // eslint-disable-next-line @next/next/no-img-element -- base64 data URL from settings, not a static/remote asset
+            <img src={letterHeadImage} alt="Letter head" className="mx-auto max-h-20 w-auto object-contain mb-1" />
+          )}
           <h1 className="text-base font-extrabold uppercase tracking-wide text-zinc-900">{bizName}</h1>
           
           {defaultLocation && (
