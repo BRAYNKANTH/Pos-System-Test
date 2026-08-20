@@ -1,12 +1,16 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { apiError, apiSuccess } from "@/lib/api-response";
+import { getCurrentUser } from "@/lib/auth/session";
+import { apiError, apiSuccess, errorMessage } from "@/lib/api-response";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
+
     const { code } = await params;
     const searchCode = code.trim().toUpperCase();
 
@@ -45,16 +49,25 @@ export async function GET(
       status: giftCard.status,
       expiresAt: giftCard.expiresAt,
     });
-  } catch (err: any) {
-    return apiError("INTERNAL_ERROR", err.message || "Failed to lookup gift card", { status: 500 });
+  } catch (err) {
+    return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to lookup gift card"), { status: 500 });
   }
 }
 
+// Manual balance-adjustment endpoint — no longer used by POS checkout
+// (redemption now happens atomically inside /api/pos/checkout itself, see
+// that route's giftCardTenders handling) but kept for admin correction
+// use. Previously had no auth check at all: anyone who knew or guessed a
+// code could drain it to zero with a single unauthenticated request and
+// no audit trail.
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
+
     const { code } = await params;
     const body = await req.json();
     const { deductAmount } = body;
@@ -94,7 +107,7 @@ export async function PATCH(
       remainingBalance: Number(updated.currentBalance),
       status: updated.status,
     });
-  } catch (err: any) {
-    return apiError("INTERNAL_ERROR", err.message || "Failed to update gift card", { status: 500 });
+  } catch (err) {
+    return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to update gift card"), { status: 500 });
   }
 }

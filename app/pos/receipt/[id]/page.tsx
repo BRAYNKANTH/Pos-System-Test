@@ -33,14 +33,20 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     prisma.invoiceSettings.findUnique({ where: { id: "default" } }),
   ]);
 
-  const invData = (invoiceSettings?.data as any) ?? {};
+  type InvoiceLayout = {
+    isDefault?: boolean;
+    invoiceHeading?: string;
+    showLetterHead?: boolean;
+    letterHeadImage?: string | null;
+  };
+  const invData = (invoiceSettings?.data as { layouts?: InvoiceLayout[] } | null) ?? {};
   const defaultLayout = Array.isArray(invData.layouts)
-    ? invData.layouts.find((l: any) => l.isDefault)
+    ? invData.layouts.find((l) => l.isDefault)
     : null;
   const headingText = defaultLayout?.invoiceHeading || "Sales Receipt";
   const letterHeadImage = defaultLayout?.showLetterHead ? (defaultLayout?.letterHeadImage ?? null) : null;
 
-  const bizData = (bizSettings?.data as any) ?? {};
+  const bizData = (bizSettings?.data as { bizName?: string; tax1No?: string; tax2No?: string } | null) ?? {};
   const bizName = bizData.bizName ?? defaultLocation?.name ?? "";
   const taxNo = bizData.tax1No || bizData.tax2No || "";
 

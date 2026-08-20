@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { apiSuccess, apiError } from "@/lib/api-response";
@@ -32,11 +33,11 @@ export async function DELETE(
     });
 
     return apiSuccess({ message: `Product "${sku}" deleted successfully.` });
-  } catch (err: any) {
+  } catch (err) {
     console.error("Failed to delete product", err);
 
     // Check for Prisma foreign key constraint code (P2003)
-    if (err.code === "P2003") {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
       return apiError(
         "FOREIGN_KEY_RESTRICTION",
         "This product is referenced in sales history and cannot be deleted. Please mark it as 'Not for selling' instead.",
@@ -91,7 +92,7 @@ export async function PATCH(
     }
 
     return apiSuccess(updated);
-  } catch (err: any) {
+  } catch (err) {
     console.error("Failed to update product", err);
     return apiError("UPDATE_FAILED", "Failed to update product.", { status: 500 });
   }

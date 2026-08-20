@@ -56,6 +56,9 @@ export function RegisterStatusBar() {
   }
 
   useEffect(() => {
+    // Standard fetch-on-mount pattern — refresh() sets state once the
+    // request resolves (or fails); nothing here is derivable during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
   }, []);
 

@@ -33,7 +33,7 @@ export default async function TaxSettingsPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-zinc-800 tracking-tight">Tax Rates</h1>
-        <p className="text-xs text-zinc-450 mt-1">Configure VAT, GST, and custom business tax rate categories. The one marked "Default" is what /pos checkout actually charges.</p>
+        <p className="text-xs text-zinc-450 mt-1">Configure VAT, GST, and custom business tax rate categories. The one marked &ldquo;Default&rdquo; is what /pos checkout actually charges.</p>
       </div>
 
       <TaxRatesClient initialRates={serialized} />

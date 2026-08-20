@@ -17,6 +17,10 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
   const [currentDate, setCurrentDate] = useState("06-08-2026");
 
   useEffect(() => {
+    // Deliberately an effect, not computed during render — see
+    // DashboardClient.tsx's identical pattern for why (impure Date.now()
+    // during a server-rendered page's shared render pass).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentDate(new Date().toLocaleDateString("en-GB").replace(/\//g, "-"));
     // /api/business-info — see AppSidebar.tsx for why not the
     // SETTINGS_MANAGE-gated /api/admin/business-settings.

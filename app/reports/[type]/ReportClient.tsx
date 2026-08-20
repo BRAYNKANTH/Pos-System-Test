@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
+import type { LucideIcon } from "lucide-react";
 import {
   Download,
   Search,
@@ -35,12 +36,22 @@ interface ChartItem {
   value: number;
 }
 
+interface StockAdjustmentLog {
+  id: string;
+  sku: string;
+  qtyChange: number;
+  type: string;
+  reasonCategory: string;
+  status: string;
+  createdAt: string;
+}
+
 interface ReportData {
   title: string;
   description: string;
   type: string;
   headers: string[];
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   summaryCards: SummaryCard[];
   chartData: ChartItem[];
   
@@ -90,7 +101,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
 
   // Stock history logs in Stock Report
   const [historyItem, setHistoryItem] = useState<{ sku: string; name: string } | null>(null);
-  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+  const [historyLogs, setHistoryLogs] = useState<StockAdjustmentLog[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const handleViewStockHistory = async (sku: string, name: string) => {
@@ -102,7 +113,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
       const res = await fetch("/api/reports/audit");
       const data = await res.json();
       if (res.ok && Array.isArray(data.data)) {
-        const logs = data.data.filter((log: any) => log.sku === sku);
+        const logs = data.data.filter((log: StockAdjustmentLog) => log.sku === sku);
         setHistoryLogs(logs);
       }
     } catch (err) {
@@ -122,7 +133,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
   const isPLReport = reportData.type === "profit-loss";
 
   // --- TABS DATA DEFINITION FOR P&L ---
-  const plTabs: { id: PLTabId; label: string; icon: any }[] = [
+  const plTabs: { id: PLTabId; label: string; icon: LucideIcon }[] = [
     { id: "products", label: "Profit by products", icon: Tag },
     { id: "categories", label: "Profit by categories", icon: FolderOpen },
     { id: "brands", label: "Profit by brands", icon: Award },
@@ -135,7 +146,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
   ];
 
   // Resolve active rows based on report type & tab selection
-  const activeRows = useMemo<Record<string, any>[]>(() => {
+  const activeRows = useMemo<Record<string, unknown>[]>(() => {
     if (!isPLReport || !reportData.plTabsData) {
       return reportData.rows;
     }
@@ -187,7 +198,7 @@ export default function ReportClient({ reportData }: ReportClientProps) {
       }
       if (filterStockStatus !== "All") {
         result = result.filter((row) => {
-          const qty = parseFloat(row.currentStock) || 0;
+          const qty = parseFloat(String(row.currentStock)) || 0;
           if (filterStockStatus === "Out") return qty <= 0;
           if (filterStockStatus === "Low") {
             // Check if quantity is low or close to 0

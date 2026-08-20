@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { apiSuccess, apiError } from "@/lib/api-response";
@@ -30,7 +31,7 @@ export async function PUT(req: NextRequest, props: { params: Promise<{ id: strin
       return apiError("EMAIL_EXISTS", "A user with this email address already exists.", { status: 400 });
     }
 
-    const updateData: any = {
+    const updateData: Prisma.UserUpdateInput = {
       name: body.name.trim(),
       email,
       role: body.role,

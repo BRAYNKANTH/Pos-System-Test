@@ -23,9 +23,16 @@ export type CartLine = {
 
 export type CartDiscount = { type: "percent" | "amount"; value: number } | null;
 
+/** Tracks that the current `discount` came from redeeming the linked
+ * customer's loyalty points (as opposed to a manual/scheduled discount) —
+ * checkout needs the point count separately from the Rs value so it can
+ * actually deduct the points server-side (see applyLoyaltyRedeem's docs). */
+export type LoyaltyRedeem = { points: number; value: number } | null;
+
 type CartState = {
   lines: CartLine[];
   discount: CartDiscount;
+  loyaltyRedeem: LoyaltyRedeem;
   shipping: number;
   customerId: string | null;
   customerName: string | null;
@@ -39,6 +46,13 @@ type CartState = {
   setLineLotExpiry: (sku: string, lotExpiry: string | null) => void;
   setLineUnit: (sku: string, unit: string | null) => void;
   setDiscount: (discount: CartDiscount) => void;
+  /** Apply a cart discount funded by spending the customer's loyalty
+   * points. Distinct from setDiscount so checkout can tell "redeem N
+   * points" apart from an arbitrary manual/promo discount of the same Rs
+   * value — the server is the one that actually deducts the points, this
+   * only stages the intent + the discount preview. */
+  applyLoyaltyRedeem: (points: number, value: number) => void;
+  clearLoyaltyRedeem: () => void;
   setShipping: (shipping: number) => void;
   setCustomer: (customer: { id: string; name: string } | null) => void;
   setHeldCartId: (id: string | null) => void;
@@ -70,11 +84,20 @@ type CartState = {
 export const useCartStore = create<CartState>((set) => ({
   lines: [],
   discount: null,
+  loyaltyRedeem: null,
   shipping: 0,
   customerId: null,
   customerName: null,
   heldCartId: null,
-  setDiscount: (discount) => set({ discount }),
+  // Any direct discount edit (including clearing it) invalidates a prior
+  // loyalty redemption tag — otherwise a cashier could apply the loyalty
+  // discount, then edit the Rs/percent value inline, and checkout would
+  // still try to redeem the original point count against a now-mismatched
+  // discount amount.
+  setDiscount: (discount) => set({ discount, loyaltyRedeem: null }),
+  applyLoyaltyRedeem: (points, value) =>
+    set({ discount: { type: "amount", value }, loyaltyRedeem: { points, value } }),
+  clearLoyaltyRedeem: () => set({ discount: null, loyaltyRedeem: null }),
   setShipping: (shipping) => set({ shipping }),
   setCustomer: (customer) =>
     set({ customerId: customer?.id ?? null, customerName: customer?.name ?? null }),
@@ -84,6 +107,11 @@ export const useCartStore = create<CartState>((set) => ({
       heldCartId: data.id,
       lines: data.lines,
       discount: data.discount,
+      // Held carts don't persist which discount was a loyalty redemption —
+      // treat a resumed discount as a plain one rather than assuming it
+      // still maps to the same point count on the (possibly now-different)
+      // customer.
+      loyaltyRedeem: null,
       shipping: data.shipping,
       customerId: data.customerId,
       customerName: data.customerName,
@@ -94,6 +122,7 @@ export const useCartStore = create<CartState>((set) => ({
       customerId: data.customerId,
       customerName: data.customerName,
       discount: null,
+      loyaltyRedeem: null,
       shipping: 0,
     }),
   addItem: (item) =>
@@ -135,5 +164,5 @@ export const useCartStore = create<CartState>((set) => ({
       lines: state.lines.map((l) => (l.sku === sku ? { ...l, unit } : l)),
     })),
   clear: () =>
-    set({ lines: [], discount: null, shipping: 0, customerId: null, customerName: null, heldCartId: null }),
+    set({ lines: [], discount: null, loyaltyRedeem: null, shipping: 0, customerId: null, customerName: null, heldCartId: null }),
 }));

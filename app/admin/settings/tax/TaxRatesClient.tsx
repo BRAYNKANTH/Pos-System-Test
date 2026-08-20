@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Edit, Trash2, X, Star } from "lucide-react";
 
@@ -15,11 +15,15 @@ type TaxRate = {
 export function TaxRatesClient({ initialRates }: { initialRates: TaxRate[] }) {
   const router = useRouter();
   const [rates, setRates] = useState(initialRates);
-
-  // Sync initialRates from server component on router.refresh()
-  useEffect(() => {
+  // Sync `rates` from the server component's props on router.refresh() —
+  // adjusted during render (comparing against the last-seen prop value)
+  // rather than in a useEffect, per React's own guidance for "adjusting
+  // state when a prop changes": https://react.dev/learn/you-might-not-need-an-effect
+  const [prevInitialRates, setPrevInitialRates] = useState(initialRates);
+  if (initialRates !== prevInitialRates) {
+    setPrevInitialRates(initialRates);
     setRates(initialRates);
-  }, [initialRates]);
+  }
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TaxRate | null>(null);
   const [name, setName] = useState("");

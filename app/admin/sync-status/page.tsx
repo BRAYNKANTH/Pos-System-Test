@@ -1,9 +1,28 @@
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { isModuleEnabled } from "@/lib/plan";
+import { getCurrentUser } from "@/lib/auth/session";
+import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
+import { redirect } from "next/navigation";
 import { RetryFailedButton } from "./RetryFailedButton";
 
 export default async function SyncStatusPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
+  // Same gate as /admin/settings/integrations — this page was previously
+  // reachable by any logged-in user (including cashiers), unlike every
+  // other admin/settings screen.
+  const allowed = await checkPermission(user.role, PERMISSIONS.ADMIN_MANAGE_ROLES);
+  if (!allowed) {
+    return (
+      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-2 px-6 py-16">
+        <h1 className="text-xl font-semibold text-zinc-800">Access Denied</h1>
+        <p className="text-sm text-zinc-500">You don&apos;t have permission to view sync status.</p>
+      </main>
+    );
+  }
+
   // Nothing ever gets queued here for a deployment without the Zoho
   // add-on (enqueueSyncJob no-ops — see lib/plan.ts), so this page would
   // just show an empty table forever. Say why instead of showing that.

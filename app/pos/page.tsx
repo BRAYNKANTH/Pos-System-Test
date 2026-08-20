@@ -10,6 +10,7 @@ import { RegisterStatusBar } from "./_components/RegisterStatusBar";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { calculateCart, applyDiscount, applyLineOverridesAndDiscounts } from "@/lib/pos/pricing";
+import type { CartLine, CartDiscount } from "@/lib/pos/cart-store";
 import {
   RotateCcw,
   Calculator,
@@ -38,8 +39,8 @@ import {
 type HeldCart = {
   id: string;
   type: string;
-  lines: any;
-  discount: any;
+  lines: CartLine[];
+  discount: CartDiscount;
   shipping: number;
   customerId: string | null;
   customer: { id: string; name: string } | null;
@@ -53,7 +54,25 @@ type RecentTx = {
   paymentMethod: string;
   createdAt: string;
   customer?: { name: string } | null;
-  items: any[];
+  items: { sku: string; qty: number; unitPrice: number }[];
+};
+
+type Product = {
+  sku: string;
+  name: string;
+  category: string | null;
+  brand: string | null;
+  unitPrice: number;
+  qtyOnHand: number;
+};
+
+type Quotation = {
+  id: string;
+  customerId: string | null;
+  customer: { id: string; name: string } | null;
+  shipping: number;
+  discount: number | null;
+  items: { sku: string; name: string; unitPrice: number; qty: number }[];
 };
 
 // Generate consistent short numeric IDs from cuid strings for display
@@ -82,13 +101,13 @@ export default function PosPage() {
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>([]);
   const [recentTxs, setRecentTxs] = useState<RecentTx[]>([]);
-  const [quotations, setQuotations] = useState<any[]>([]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [activeTxTab, setActiveTxTab] = useState<"final" | "quotation" | "draft">("final");
 
   // Products — fetched once and passed to both CartPanel and ProductSearch.
   // Previously each component fetched independently, causing 2 identical
   // /api/pos/products requests on every page load.
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   // Tax rate fetched from the DB default rule — kept in sync with what checkout
   // actually charges so the displayed total always matches the final amount.
   const [taxRate, setTaxRate] = useState(0.08);
@@ -666,7 +685,6 @@ export default function PosPage() {
         onClose={() => setIsPaymentOpen(false)}
         total={totalPayable}
         totalItems={totalItems}
-        calculationPayload={calculation}
       />
 
       {/* Unified Recent Transactions Modal */}
@@ -756,7 +774,7 @@ export default function PosPage() {
             ) : (
               quotations.map((q, idx) => {
                 const shortId = getShortNumericId(q.id, 20300);
-                const itemsTotal = q.items?.reduce((sum: number, i: any) => sum + (i.qty * Number(i.unitPrice)), 0) || 0;
+                const itemsTotal = q.items?.reduce((sum, i) => sum + (i.qty * Number(i.unitPrice)), 0) || 0;
                 const totalAmt = itemsTotal + Number(q.shipping) - Number(q.discount || 0);
                 return (
                   <div key={q.id} className="flex items-center justify-between text-sm py-2.5 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 px-2 rounded">
@@ -771,7 +789,7 @@ export default function PosPage() {
                         <button
                           onClick={() => {
                             loadQuotationItems({
-                              lines: q.items.map((i: any) => ({ sku: i.sku, name: i.name, unitPrice: Number(i.unitPrice), qty: i.qty })),
+                              lines: q.items.map((i) => ({ sku: i.sku, name: i.name, unitPrice: Number(i.unitPrice), qty: i.qty })),
                               customerId: q.customerId,
                               customerName: q.customer?.name ?? null,
                             });
@@ -808,7 +826,7 @@ export default function PosPage() {
               heldCarts.map((c, idx) => {
                 const shortId = getShortNumericId(c.id, 30100);
                 const linesArray = Array.isArray(c.lines) ? c.lines : [];
-                const itemsTotal = linesArray.reduce((sum: number, l: any) => sum + ((l.qty || 0) * (l.unitPrice || 0)), 0);
+                const itemsTotal = linesArray.reduce((sum, l) => sum + ((l.qty || 0) * (l.unitPrice || 0)), 0);
                 const totalAmt = itemsTotal + Number(c.shipping || 0);
                 return (
                   <div key={c.id} className="flex items-center justify-between text-sm py-2.5 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 px-2 rounded">

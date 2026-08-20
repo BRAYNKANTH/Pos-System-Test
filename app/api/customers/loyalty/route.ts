@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { apiError, apiSuccess } from "@/lib/api-response";
+import { getCurrentUser } from "@/lib/auth/session";
+import { apiError, apiSuccess, errorMessage } from "@/lib/api-response";
 import {
   calculateLoyaltyTier,
   pointsToDiscountValue,
@@ -9,6 +10,9 @@ import {
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const customerId = searchParams.get("customerId");
 
@@ -48,13 +52,24 @@ export async function GET(req: NextRequest) {
       loyaltyTier: currentTier,
       maxDiscountValue,
     });
-  } catch (err: any) {
-    return apiError("INTERNAL_ERROR", err.message || "Failed to fetch loyalty data", { status: 500 });
+  } catch (err) {
+    return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to fetch loyalty data"), { status: 500 });
   }
 }
 
+// Manual points redemption — no longer used at checkout (redeeming
+// against a sale now happens atomically inside /api/pos/checkout, which
+// also correctly earns points on the sale; this route previously had no
+// auth check, and was also being called by the old checkout flow with
+// mismatched field names — `amountSpent` instead of `redeemPoints` /
+// `redeemDiscount` — so it 400'd on every single sale and no points were
+// ever actually earned). Kept for a possible future admin/manual-redeem
+// use case.
 export async function POST(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
+
     const body = await req.json();
     const { customerId, redeemPoints, redeemDiscount } = body;
 
@@ -101,7 +116,7 @@ export async function POST(req: NextRequest) {
       remainingPoints: updatedCustomer.loyaltyPoints,
       loyaltyTier: updatedCustomer.loyaltyTier,
     });
-  } catch (err: any) {
-    return apiError("INTERNAL_ERROR", err.message || "Failed to redeem loyalty points", { status: 500 });
+  } catch (err) {
+    return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to redeem loyalty points"), { status: 500 });
   }
 }

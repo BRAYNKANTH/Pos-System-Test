@@ -43,6 +43,7 @@ export function CartPanel({
   const {
     lines,
     discount,
+    loyaltyRedeem,
     shipping,
     customerId,
     customerName,
@@ -55,6 +56,8 @@ export function CartPanel({
     setLineLotExpiry,
     setLineUnit,
     setDiscount,
+    applyLoyaltyRedeem,
+    clearLoyaltyRedeem,
     setShipping,
     setCustomer,
   } = useCartStore();
@@ -111,6 +114,10 @@ export function CartPanel({
 
   useEffect(() => {
     if (!customerId) {
+      // Clearing stale loyalty data for the previous customer the instant
+      // the selection changes/clears — synchronizing to an external prop
+      // change, not state that could be derived during render.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCustomerLoyalty(null);
       return;
     }
@@ -248,15 +255,25 @@ export function CartPanel({
             <span>{customerLoyalty.loyaltyPoints} Pts (Rs {customerLoyalty.maxDiscountValue.toFixed(2)})</span>
           </div>
 
-          {customerLoyalty.maxDiscountValue > 0 && (
+          {loyaltyRedeem ? (
             <button
-              onClick={() => {
-                setDiscount({ type: "amount", value: customerLoyalty.maxDiscountValue });
-              }}
-              className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] transition shadow-2xs"
+              onClick={clearLoyaltyRedeem}
+              className="px-2 py-1 rounded bg-emerald-600 hover:bg-red-600 text-white font-extrabold text-[10px] transition shadow-2xs"
+              title="Click to remove the applied loyalty discount"
             >
-              Apply Loyalty Disc
+              Applied ({loyaltyRedeem.points} pts) ✕
             </button>
+          ) : (
+            customerLoyalty.maxDiscountValue > 0 && (
+              <button
+                onClick={() => {
+                  applyLoyaltyRedeem(customerLoyalty.loyaltyPoints, customerLoyalty.maxDiscountValue);
+                }}
+                className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] transition shadow-2xs"
+              >
+                Apply Loyalty Disc
+              </button>
+            )
           )}
         </div>
       )}

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+export { errorMessage } from "./errors";
 
 // Shared API response envelope — every route handler in every module
 // should return one of these two shapes. See docs/api-contracts.md for the

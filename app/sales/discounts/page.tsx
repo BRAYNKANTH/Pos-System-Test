@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import DiscountsClient from "./DiscountsClient";
+import DiscountsClient, { type DBProduct } from "./DiscountsClient";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +41,7 @@ export default async function DiscountsPage() {
     priority: d.priority,
     brand: d.brand || "",
     category: d.category || "",
-    products: d.products as any[],
+    products: d.products as unknown as DBProduct[],
     location: d.location,
     sellingPriceGroup: d.sellingPriceGroup,
     applyInCustomerGroups: d.applyInCustomerGroups,

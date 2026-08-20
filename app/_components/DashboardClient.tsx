@@ -93,9 +93,14 @@ export default function DashboardClient({
   // Active Date Range Filter: "today" (Daily Review default) vs "all_time"
   const [dateRange, setDateRange] = useState<"today" | "all_time">("today");
 
-  // Compute current date display
+  // Compute current date display. Deliberately an effect, not computed
+  // directly during render: `new Date()` is impure and this page is
+  // server-rendered, so calling it during the shared server/client render
+  // would print whatever date the server happened to render at (and could
+  // mismatch the client's clock) instead of "today" as the client sees it.
   const [currentDate, setCurrentDate] = useState("06-08-2026");
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentDate(new Date().toLocaleDateString("en-GB").replace(/\//g, "-"));
   }, []);
 

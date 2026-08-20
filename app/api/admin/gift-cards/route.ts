@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
-import { apiError, apiSuccess } from "@/lib/api-response";
+import { apiError, apiSuccess, errorMessage } from "@/lib/api-response";
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,8 +24,8 @@ export async function GET(req: NextRequest) {
     });
 
     return apiSuccess(giftCards);
-  } catch (err: any) {
-    return apiError("INTERNAL_ERROR", err.message || "Failed to fetch gift cards", { status: 500 });
+  } catch (err) {
+    return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to fetch gift cards"), { status: 500 });
   }
 }
 
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     });
 
     return apiSuccess(giftCard);
-  } catch (err: any) {
-    return apiError("INTERNAL_ERROR", err.message || "Failed to create gift card", { status: 500 });
+  } catch (err) {
+    return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to create gift card"), { status: 500 });
   }
 }

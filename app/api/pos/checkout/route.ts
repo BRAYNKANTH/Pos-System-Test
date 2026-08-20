@@ -9,11 +9,23 @@ import { resolveDiscountsForLines } from "@/lib/pos/discounts";
 import { deductStockOnSale, syncLocationStockAfterSale, InsufficientStockError } from "@/lib/inventory/stock";
 import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
 import { writeAuditLog } from "@/lib/audit/writeAuditLog";
+import { calculateEarnedPoints, calculateLoyaltyTier, pointsToDiscountValue } from "@/lib/customers/loyalty";
 
 type LineDiscount = { type: "percent" | "amount"; value: number };
 type PriceOverride = { newPrice: number; reason: string };
 type RequestLine = { sku: string; qty: number; priceOverride?: PriceOverride; lineDiscount?: LineDiscount };
-type Tender = { method: string; amount: number };
+// giftCardCode carries the voucher code for a "gift_card" tender — kept
+// off the persisted PaymentTender row (schema has no column for it) but
+// used here to validate and atomically deduct the real balance instead of
+// accepting the tender at face value with nothing behind it.
+type Tender = { method: string; amount: number; giftCardCode?: string };
+
+class GiftCardValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GiftCardValidationError";
+  }
+}
 
 // processPayment — POST /api/pos/checkout — finalize sale. Supports
 // split/partial payments via `tenders: {method, amount}[]` (e.g. $20 cash
@@ -46,8 +58,23 @@ export async function POST(req: NextRequest) {
   const discount = body?.discount as DiscountInput | undefined;
   const shipping = Number(body?.shipping) || 0;
   const customerId = typeof body?.customerId === "string" && body.customerId ? body.customerId : null;
+  // Points the cashier is spending as a loyalty discount this sale —
+  // distinct from `discount` so the customer's point balance actually
+  // gets decremented (previously this only ever adjusted the displayed
+  // total; nothing ever deducted the points, so the same "discount" could
+  // be reapplied indefinitely).
+  const redeemLoyaltyPointsRaw = Number(body?.redeemLoyaltyPoints);
+  const redeemLoyaltyPoints =
+    Number.isFinite(redeemLoyaltyPointsRaw) && redeemLoyaltyPointsRaw > 0 ? Math.floor(redeemLoyaltyPointsRaw) : 0;
 
-  let tenders: Tender[] = Array.isArray(body?.tenders) ? body.tenders : [];
+  let tenders: Tender[] = Array.isArray(body?.tenders)
+    ? body.tenders.map((t: { method?: string; amount?: number; giftCardCode?: string }) => ({
+        method: t?.method,
+        amount: t?.amount,
+        giftCardCode:
+          typeof t?.giftCardCode === "string" && t.giftCardCode.trim() ? t.giftCardCode.trim().toUpperCase() : undefined,
+      }))
+    : [];
   if (tenders.length === 0 && typeof body?.paymentMethod === "string" && body.paymentMethod) {
     tenders = [{ method: body.paymentMethod, amount: Number.POSITIVE_INFINITY }]; // amount validated against total below
   }
@@ -73,6 +100,13 @@ export async function POST(req: NextRequest) {
       });
     }
   }
+  const giftCardTenders = tenders.filter((t) => t.method === "gift_card");
+  if (giftCardTenders.some((t) => !t.giftCardCode)) {
+    return apiError("INVALID_INPUT", "Gift card tenders require a voucher code", { status: 400 });
+  }
+  if (redeemLoyaltyPoints > 0 && !customerId) {
+    return apiError("INVALID_INPUT", "A customer must be selected to redeem loyalty points", { status: 400 });
+  }
 
   // Kicked off now, awaited later — none of these depend on the
   // idempotency/inventory/discount chain below, so running them
@@ -83,6 +117,9 @@ export async function POST(req: NextRequest) {
   const taxRulePromise = prisma.taxRule.findFirst({ where: { isDefault: true } });
   const openSessionPromise = prisma.registerSession.findFirst({ where: { status: "open" } });
   const customerPromise = customerId ? prisma.customer.findUnique({ where: { id: customerId } }) : null;
+  const giftCardCodes = [...new Set(giftCardTenders.map((t) => t.giftCardCode!))];
+  const giftCardsPromise =
+    giftCardCodes.length > 0 ? prisma.giftCard.findMany({ where: { code: { in: giftCardCodes } } }) : null;
 
   const skus = requestLines.map((l) => l.sku);
   // Also run concurrently with the idempotency check below — in the rare
@@ -148,8 +185,47 @@ export async function POST(req: NextRequest) {
 
   if (discount) lines = applyDiscount(lines, discount);
 
-  const [taxRule, openSession, customer] = await Promise.all([taxRulePromise, openSessionPromise, customerPromise]);
+  const [taxRule, openSession, customer, giftCards] = await Promise.all([
+    taxRulePromise,
+    openSessionPromise,
+    customerPromise,
+    giftCardsPromise,
+  ]);
   if (customerId && !customer) return apiError("UNKNOWN_CUSTOMER", "Customer not found", { status: 400 });
+
+  // Validate every referenced gift card exists and is redeemable (balance
+  // sufficiency is checked further down, once tender amounts are final —
+  // the single-tender `paymentMethod` fallback's amount isn't known yet).
+  if (giftCardCodes.length > 0) {
+    const giftCardByCode = new Map((giftCards ?? []).map((g) => [g.code, g]));
+    for (const code of giftCardCodes) {
+      const gc = giftCardByCode.get(code);
+      if (!gc) return apiError("INVALID_GIFT_CARD", `Gift card code '${code}' not found`, { status: 400 });
+      if (gc.status === "deactivated") {
+        return apiError("INVALID_GIFT_CARD", `Gift card '${code}' has been deactivated`, { status: 400 });
+      }
+      if (gc.expiresAt && new Date() > new Date(gc.expiresAt)) {
+        return apiError("INVALID_GIFT_CARD", `Gift card '${code}' has expired`, { status: 400 });
+      }
+    }
+  }
+
+  // Loyalty point redemption — validated against the real balance and
+  // applied as a cart discount alongside any manual/scheduled discount
+  // (see cart-store's applyLoyaltyRedeem for why this is a separate field
+  // from `discount` rather than folded into it).
+  if (redeemLoyaltyPoints > 0) {
+    if (!customer) return apiError("UNKNOWN_CUSTOMER", "Customer not found", { status: 400 });
+    if (customer.loyaltyPoints < redeemLoyaltyPoints) {
+      return apiError(
+        "INSUFFICIENT_LOYALTY_POINTS",
+        `Customer only has ${customer.loyaltyPoints} loyalty points (requested ${redeemLoyaltyPoints})`,
+        { status: 400 },
+      );
+    }
+    const loyaltyDiscountValue = pointsToDiscountValue(redeemLoyaltyPoints);
+    lines = applyDiscount(lines, { scope: "cart", type: "amount", value: loyaltyDiscountValue });
+  }
 
   const taxRate = taxRule ? Number(taxRule.rate) : 0;
   const calculation = calculateCart(lines, taxRate, shipping);
@@ -169,6 +245,22 @@ export async function POST(req: NextRequest) {
     );
   }
   const paymentMethod = tenders.length > 1 ? "split" : tenders[0].method;
+
+  // Balance sufficiency, now that every tender's real amount is known
+  // (the single-tender fallback's Infinity placeholder is resolved above).
+  if (giftCardCodes.length > 0) {
+    const giftCardByCode = new Map((giftCards ?? []).map((g) => [g.code, g]));
+    for (const t of giftCardTenders) {
+      const gc = giftCardByCode.get(t.giftCardCode!)!;
+      if (Number(gc.currentBalance) < t.amount) {
+        return apiError(
+          "INVALID_GIFT_CARD",
+          `Gift card '${t.giftCardCode}' balance (Rs ${Number(gc.currentBalance).toFixed(2)}) is less than the Rs ${t.amount.toFixed(2)} tendered`,
+          { status: 400 },
+        );
+      }
+    }
+  }
 
   // openSession (resolved above, in parallel with taxRule/customer): links
   // to the currently open till, if any — sales don't require one to be
@@ -227,7 +319,43 @@ export async function POST(req: NextRequest) {
         data: { transactionId: transaction.id, status: "locked" },
       });
 
-      return { transaction, bill };
+      // Deduct each redeemed gift card's balance inside the same
+      // transaction as the sale — re-checked against the live row here
+      // (not just the pre-transaction snapshot above) so a concurrent
+      // redemption of the same code can't double-spend it; if it changed
+      // underneath us, the whole sale rolls back rather than completing
+      // with an unfunded tender.
+      for (const t of giftCardTenders) {
+        const gc = await tx.giftCard.findUnique({ where: { code: t.giftCardCode! } });
+        if (!gc || gc.status === "deactivated" || (gc.expiresAt && new Date() > new Date(gc.expiresAt))) {
+          throw new GiftCardValidationError(`Gift card '${t.giftCardCode}' is no longer valid`);
+        }
+        const newBalance = Number(gc.currentBalance) - t.amount;
+        if (newBalance < 0) {
+          throw new GiftCardValidationError(`Gift card '${t.giftCardCode}' balance changed and is now insufficient`);
+        }
+        await tx.giftCard.update({
+          where: { id: gc.id },
+          data: { currentBalance: newBalance, status: newBalance === 0 ? "redeemed" : gc.status },
+        });
+      }
+
+      // Earn points on this sale and/or redeem the points spent above —
+      // one update, net of both, so a sale that both redeems and earns in
+      // the same visit doesn't need two round trips.
+      let loyalty: { earned: number; redeemed: number; newBalance: number; tier: string } | null = null;
+      if (customerId && customer) {
+        const earned = calculateEarnedPoints(calculation.total, customer.loyaltyTier);
+        const newPoints = Math.max(0, customer.loyaltyPoints + earned - redeemLoyaltyPoints);
+        const newTier = calculateLoyaltyTier(newPoints);
+        await tx.customer.update({
+          where: { id: customerId },
+          data: { loyaltyPoints: newPoints, loyaltyTier: newTier },
+        });
+        loyalty = { earned, redeemed: redeemLoyaltyPoints, newBalance: newPoints, tier: newTier };
+      }
+
+      return { transaction, bill, loyalty };
     }, TRANSACTION_OPTIONS);
 
     // Fire-and-forget — not awaited, doesn't delay the customer's receipt.
@@ -272,11 +400,15 @@ export async function POST(req: NextRequest) {
       billId: result.bill.id,
       total: Number(result.transaction.total),
       changeDue: Math.max(0, Math.round((tenderedTotal - calculation.total) * 100) / 100),
+      loyalty: result.loyalty,
       replay: false,
     });
   } catch (err) {
     if (err instanceof InsufficientStockError) {
       return apiError("INSUFFICIENT_STOCK", `Not enough stock for ${err.sku}`, { status: 409 });
+    }
+    if (err instanceof GiftCardValidationError) {
+      return apiError("INVALID_GIFT_CARD", err.message, { status: 409 });
     }
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       // Concurrent request with the same idempotency key won the race —

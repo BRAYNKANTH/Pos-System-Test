@@ -59,9 +59,23 @@ export function VisualAnalyticsCharts({
     })
     .join(" ");
 
-  // Donut chart math
+  // Donut chart math — each slice's start angle is the running total of
+  // every previous slice's angle. Previously computed with a `let
+  // cumulativeAngle` mutated inside the JSX .map() below: that reads fine
+  // top-to-bottom, but mutating render-scoped state while rendering is
+  // exactly what React's rules of components disallow (breaks under
+  // StrictMode double-invoke / concurrent rendering, where the same pass
+  // can run more than once). Precomputing a pure array of start angles
+  // keeps the render itself a straight read.
   const totalCatValue = categoryDistribution.reduce((sum, c) => sum + c.value, 0);
-  let cumulativeAngle = 0;
+  const categorySliceStartAngles = categoryDistribution.reduce<{ starts: number[]; running: number }>(
+    (acc, cat) => {
+      acc.starts.push(acc.running);
+      acc.running += (cat.value / totalCatValue) * 360;
+      return acc;
+    },
+    { starts: [], running: 0 },
+  ).starts;
 
   return (
     <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-xs space-y-6 print:hidden">
@@ -186,8 +200,7 @@ export function VisualAnalyticsCharts({
               {categoryDistribution.map((cat, idx) => {
                 const sliceAngle = (cat.value / totalCatValue) * 360;
                 const strokeDasharray = `${(sliceAngle / 360) * 283} 283`;
-                const strokeDashoffset = -((cumulativeAngle / 360) * 283);
-                cumulativeAngle += sliceAngle;
+                const strokeDashoffset = -((categorySliceStartAngles[idx] / 360) * 283);
 
                 return (
                   <circle

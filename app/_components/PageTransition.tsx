@@ -35,9 +35,14 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Keep children in sync when they update on the same route (data refresh).
+  // Keep children in sync when they update on the same route (data
+  // refresh). `children` is a new element tree essentially every render,
+  // so there's no stable "previous value" to branch on outside an effect
+  // the way a simple prop does — this really is synchronizing internal
+  // display state to an external (parent-driven) stream of updates.
   useEffect(() => {
     if (transitionStage === "enter") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above the effect
       setDisplayChildren(children);
     }
   }, [children, transitionStage]);

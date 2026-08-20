@@ -23,14 +23,20 @@ export function ManagerPinModal({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Reset the form fields whenever the modal transitions to open —
+  // adjusted during render (comparing against the last-seen `open` value)
+  // rather than in a useEffect, per React's own guidance for "adjusting
+  // state when a prop changes": https://react.dev/learn/you-might-not-need-an-effect
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setPin("");
       setError(null);
       setSuccessMsg(null);
       setLoading(false);
     }
-  }, [open]);
+  }
 
   // Handle physical keypresses
   useEffect(() => {
@@ -92,7 +98,7 @@ export function ManagerPinModal({
           role: data.data.role,
         });
       }, 400);
-    } catch (err: any) {
+    } catch {
       setError("Network error validating PIN");
       setPin("");
     } finally {

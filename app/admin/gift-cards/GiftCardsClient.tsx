@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Gift, Plus, Search, Printer, Calendar, CreditCard, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
+import { errorMessage } from "@/lib/errors";
 
 interface GiftCard {
   id: string;
@@ -46,7 +47,12 @@ export default function GiftCardsClient() {
     }
   };
 
+  // Standard "fetch on mount / when the search query changes" effect —
+  // fetchGiftCards sets a loading flag synchronously before its first
+  // await so the spinner shows immediately, which is what trips this rule;
+  // that's the intended behavior here, not a bug.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above the effect
     fetchGiftCards();
   }, [query]);
 
@@ -79,8 +85,8 @@ export default function GiftCardsClient() {
       setNotes("");
       fetchGiftCards();
       setPrintCard(data.data);
-    } catch (err: any) {
-      setFormError(err.message || "Network error");
+    } catch (err) {
+      setFormError(errorMessage(err, "Network error"));
     } finally {
       setSubmitting(false);
     }
@@ -155,7 +161,7 @@ export default function GiftCardsClient() {
               ) : giftCards.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-8 text-center text-zinc-400">
-                    No gift cards found. Click "Issue Gift Card" to create one.
+                    No gift cards found. Click &ldquo;Issue Gift Card&rdquo; to create one.
                   </td>
                 </tr>
               ) : (

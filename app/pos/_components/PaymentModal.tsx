@@ -13,17 +13,41 @@ type PaymentTender = {
   note?: string;
 };
 
+// Mirrors the response shape of GET /api/pos/receipt/[id] — see that
+// route for the source of truth.
+type ReceiptData = {
+  id: string;
+  headingText: string;
+  letterHeadImage: string | null;
+  bizName: string;
+  locationName: string | null;
+  taxNo: string | null;
+  createdAt: string;
+  cashierName: string;
+  customerName: string | null;
+  registerId: string;
+  paymentMethod: string;
+  status: string;
+  subtotal: number;
+  tax: number;
+  shipping: number;
+  total: number;
+  billId: string | null;
+  billStatus: string | null;
+  tenders: { method: string; amount: number }[];
+  items: { sku: string; qty: number; unitPrice: number; discount: number; taxAmount: number }[];
+};
+
 interface PaymentModalProps {
   open: boolean;
   onClose: () => void;
   total: number;
   totalItems: number;
-  calculationPayload: any;
 }
 
-export function PaymentModal({ open, onClose, total, totalItems, calculationPayload }: PaymentModalProps) {
+export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalProps) {
   const router = useRouter();
-  const { lines, discount, shipping, customerId, clear, heldCartId } = useCartStore();
+  const { lines, discount, loyaltyRedeem, shipping, customerId, clear, heldCartId } = useCartStore();
   const [tenders, setTenders] = useState<PaymentTender[]>([
     { method: "cash", amount: total },
   ]);
@@ -33,8 +57,39 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
   const [submitting, setSubmitting] = useState(false);
 
   const [completedTxId, setCompletedTxId] = useState<string | null>(null);
-  const [receiptData, setReceiptData] = useState<any>(null);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
+
+  // Live balance lookup for a gift-card tender's code — lets the cashier
+  // catch a mistyped/expired/depleted code before finalizing, rather than
+  // only finding out from checkout's rejection after everything else has
+  // already been entered.
+  const [giftCardChecks, setGiftCardChecks] = useState<
+    Record<number, { checking: boolean; ok: boolean | null; message: string }>
+  >({});
+
+  async function checkGiftCard(index: number) {
+    const code = tenders[index]?.note?.trim();
+    if (!code) return;
+    setGiftCardChecks((prev) => ({ ...prev, [index]: { checking: true, ok: null, message: "" } }));
+    try {
+      const res = await fetch(`/api/admin/gift-cards/${encodeURIComponent(code)}`);
+      const body = await res.json();
+      if (res.ok && body.success) {
+        setGiftCardChecks((prev) => ({
+          ...prev,
+          [index]: { checking: false, ok: true, message: `Balance: Rs ${Number(body.data.currentBalance).toFixed(2)}` },
+        }));
+      } else {
+        setGiftCardChecks((prev) => ({
+          ...prev,
+          [index]: { checking: false, ok: false, message: body.error?.message ?? "Gift card not found" },
+        }));
+      }
+    } catch {
+      setGiftCardChecks((prev) => ({ ...prev, [index]: { checking: false, ok: false, message: "Network error" } }));
+    }
+  }
 
   // Reset to a single cash tender pre-filled with the current total every
   // time the modal transitions from closed to open — not every time
@@ -62,6 +117,10 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
   // Load receipt details on mount/update when transaction is successfully checked out
   useEffect(() => {
     if (!completedTxId) return;
+    // Standard fetch-on-change pattern — the loading flag is set
+    // synchronously so the spinner shows immediately, before the request
+    // resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingReceipt(true);
     fetch(`/api/pos/receipt/${completedTxId}`)
       .then((r) => r.json())
@@ -86,7 +145,7 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
     setTenders((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function updateTender(index: number, key: keyof PaymentTender, value: any) {
+  function updateTender<K extends keyof PaymentTender>(index: number, key: K, value: PaymentTender[K]) {
     setTenders((prev) =>
       prev.map((t, i) => (i === index ? { ...t, [key]: value } : t))
     );
@@ -109,10 +168,19 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
         priceOverride: l.priceOverride ?? undefined,
         lineDiscount: l.lineDiscount ?? undefined,
       })),
-      discount: discount ? { scope: "cart" as const, type: discount.type, value: discount.value } : undefined,
+      // When the applied discount is a loyalty redemption, don't also send
+      // it as a generic `discount` — the server derives the same Rs value
+      // itself from `redeemLoyaltyPoints` (and actually deducts the
+      // points). Sending both would double the discount.
+      discount: !loyaltyRedeem && discount ? { scope: "cart" as const, type: discount.type, value: discount.value } : undefined,
+      redeemLoyaltyPoints: loyaltyRedeem?.points ?? undefined,
       shipping,
       customerId,
-      tenders: tenders.map((t) => ({ method: t.method, amount: t.amount })),
+      tenders: tenders.map((t) => ({
+        method: t.method,
+        amount: t.amount,
+        giftCardCode: t.method === "gift_card" ? t.note : undefined,
+      })),
       sellNote,
       staffNote,
       idempotencyKey: crypto.randomUUID(),
@@ -134,25 +202,13 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
         throw new SyntaxError("Failed to parse JSON response");
       }
 
-      // Process gift card deductions if applicable
-      for (const t of tenders) {
-        if (t.method === "gift_card" && t.note) {
-          await fetch(`/api/admin/gift-cards/${encodeURIComponent(t.note)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deductAmount: t.amount }),
-          }).catch(() => {});
-        }
-      }
-
-      // If customer linked, calculate & credit earned loyalty points
-      if (customerId) {
-        await fetch("/api/customers/loyalty", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customerId, amountSpent: total }),
-        }).catch(() => {});
-      }
+      // Gift card redemption and loyalty point earn/redeem now happen
+      // atomically inside /api/pos/checkout itself (same DB transaction as
+      // the sale) — previously these were separate best-effort requests
+      // fired here regardless of whether checkout above had even
+      // succeeded, so a failed sale could still drain a gift card or
+      // silently never award points (the old loyalty call also sent the
+      // wrong field name and 400'd every single time).
 
       if (!res.ok || !body.success) {
         setError(body.error?.message ?? `Checkout failed (${res.status})`);
@@ -246,7 +302,7 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
 
   // Render the Receipt Preview Modal overlay on successful payment completion
   if (completedTxId) {
-    const tendersTotal = receiptData ? receiptData.tenders.reduce((sum: number, t: any) => sum + t.amount, 0) : 0;
+    const tendersTotal = receiptData ? receiptData.tenders.reduce((sum, t) => sum + t.amount, 0) : 0;
     const changePaid = receiptData ? Math.max(0, tendersTotal - receiptData.total) : 0;
 
     return (
@@ -325,7 +381,7 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
 
                 {/* Table Items */}
                 <div className="space-y-1.5 pb-2">
-                  {receiptData.items.map((item: any, idx: number) => {
+                  {receiptData.items.map((item, idx) => {
                     const lineSub = item.unitPrice * item.qty - item.discount;
                     return (
                       <div key={idx} className="flex justify-between text-zinc-900 font-semibold text-[10px] leading-tight">
@@ -365,7 +421,7 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
 
                 {/* Payments */}
                 <div className="border-t border-zinc-900 pt-2 pb-1.5 space-y-1 text-[10px] text-zinc-650">
-                  {receiptData.tenders.map((t: any, idx: number) => (
+                  {receiptData.tenders.map((t, idx) => (
                     <div key={idx} className="flex justify-between">
                       <span className="capitalize">{t.method} Pay:</span>
                       <span className="font-sans tabular-nums">Rs {t.amount.toFixed(2)}</span>
@@ -510,51 +566,92 @@ export function PaymentModal({ open, onClose, total, totalItems, calculationPayl
                 Payment Breakdown
               </span>
               {tenders.map((tender, index) => (
-                <div key={index} className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60 md:flex-row md:items-center">
-                  
-                  {/* Payment Method Selector */}
-                  <div className="w-full md:w-44 flex flex-col gap-1">
-                    <label className="text-[11px] font-bold text-zinc-500">Method</label>
-                    <div className="relative">
-                      <select
-                        value={tender.method}
-                        onChange={(e) => updateTender(index, "method", e.target.value)}
-                        className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm font-semibold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800 capitalize"
+                <div key={index} className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                    {/* Payment Method Selector */}
+                    <div className="w-full md:w-44 flex flex-col gap-1">
+                      <label className="text-[11px] font-bold text-zinc-500">Method</label>
+                      <div className="relative">
+                        <select
+                          value={tender.method}
+                          onChange={(e) => updateTender(index, "method", e.target.value as PaymentTender["method"])}
+                          className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm font-semibold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800 capitalize"
+                        >
+                          <option value="cash">💵 Cash</option>
+                          <option value="card">💳 Card</option>
+                          <option value="wallet">📱 Digital Wallet</option>
+                          <option value="gift_card">🎁 Gift Card / Voucher</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Amount Input */}
+                    <div className="flex-1 flex flex-col gap-1">
+                      <label className="text-[11px] font-bold text-zinc-500">Tender Amount (Rs)</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          autoFocus={index === 0}
+                          value={tender.amount === 0 ? "" : tender.amount}
+                          onChange={(e) => updateTender(index, "amount", Number(e.target.value))}
+                          placeholder="0.00"
+                          className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-base font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800 font-mono tabular-nums text-zinc-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Remove button */}
+                    {tenders.length > 1 && (
+                      <button
+                        onClick={() => removePaymentRow(index)}
+                        className="h-10 px-3 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 self-end md:self-auto flex items-center justify-center transition"
+                        title="Remove Row"
                       >
-                        <option value="cash">💵 Cash</option>
-                        <option value="card">💳 Card</option>
-                        <option value="wallet">📱 Digital Wallet</option>
-                        <option value="gift_card">🎁 Gift Card / Voucher</option>
-                      </select>
-                    </div>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
 
-                  {/* Amount Input */}
-                  <div className="flex-1 flex flex-col gap-1">
-                    <label className="text-[11px] font-bold text-zinc-500">Tender Amount (Rs)</label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        autoFocus={index === 0}
-                        value={tender.amount === 0 ? "" : tender.amount}
-                        onChange={(e) => updateTender(index, "amount", Number(e.target.value))}
-                        placeholder="0.00"
-                        className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-base font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800 font-mono tabular-nums text-zinc-900 dark:text-white"
-                      />
+                  {/* Gift Card / Voucher Code — required to redeem a real
+                      balance; checkout rejects a gift_card tender with no
+                      code (this used to have no code field at all, so any
+                      amount typed here was accepted as "paid" with
+                      nothing actually charged to a real voucher). */}
+                  {tender.method === "gift_card" && (
+                    <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                      <div className="flex-1 flex flex-col gap-1">
+                        <label className="text-[11px] font-bold text-zinc-500">Voucher Code</label>
+                        <input
+                          type="text"
+                          value={tender.note ?? ""}
+                          onChange={(e) => {
+                            updateTender(index, "note", e.target.value.toUpperCase());
+                            setGiftCardChecks((prev) => {
+                              const next = { ...prev };
+                              delete next[index];
+                              return next;
+                            });
+                          }}
+                          placeholder="e.g. GC-AB12CD-3E4F"
+                          className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-xs font-mono font-bold uppercase outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => checkGiftCard(index)}
+                        disabled={!tender.note?.trim() || giftCardChecks[index]?.checking}
+                        className="h-9 px-3 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-400 text-xs font-bold transition disabled:opacity-50"
+                      >
+                        {giftCardChecks[index]?.checking ? "Checking..." : "Check Balance"}
+                      </button>
+                      {giftCardChecks[index] && !giftCardChecks[index].checking && (
+                        <span className={`text-xs font-bold ${giftCardChecks[index].ok ? "text-emerald-600" : "text-red-600"}`}>
+                          {giftCardChecks[index].message}
+                        </span>
+                      )}
                     </div>
-                  </div>
-
-                  {/* Remove button */}
-                  {tenders.length > 1 && (
-                    <button
-                      onClick={() => removePaymentRow(index)}
-                      className="h-10 px-3 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 self-end md:self-auto flex items-center justify-center transition"
-                      title="Remove Row"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
                   )}
                 </div>
               ))}

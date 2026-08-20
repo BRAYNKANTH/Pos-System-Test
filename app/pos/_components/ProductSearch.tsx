@@ -37,6 +37,9 @@ export function ProductSearch({
 
   useEffect(() => {
     if (propProducts) {
+      // No fetch needed when products arrive via props — turning the
+      // loading flag off immediately, not state derivable during render.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }

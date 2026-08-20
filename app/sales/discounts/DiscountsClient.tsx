@@ -13,7 +13,7 @@ import {
   Check,
 } from "lucide-react";
 
-interface DBProduct {
+export interface DBProduct {
   sku: string;
   name: string;
   category: string | null;

@@ -91,6 +91,11 @@ export default function PrintLabelsClient({ products }: PrintLabelsClientProps) 
     }
 
     const todayStr = new Date().toISOString().split("T")[0];
+    // react-hooks/purity flags Date.now() here as "impure during render" —
+    // this function is only ever invoked from onClick (see the dropdown
+    // below), never during render; the lint rule just can't trace through
+    // the `() => handleSelectProduct(p)` wrapper to see that.
+    // eslint-disable-next-line react-hooks/purity
     const expStr = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0];
@@ -115,10 +120,10 @@ export default function PrintLabelsClient({ products }: PrintLabelsClientProps) 
   };
 
   // Update item field values
-  const handleUpdateItem = (
+  const handleUpdateItem = <K extends keyof SelectedLabelProduct>(
     sku: string,
-    key: keyof SelectedLabelProduct,
-    value: any
+    key: K,
+    value: SelectedLabelProduct[K]
   ) => {
     setSelectedItems(
       selectedItems.map((item) =>
@@ -563,8 +568,8 @@ export default function PrintLabelsClient({ products }: PrintLabelsClientProps) 
                       onChange={(e) => setBarcodeSetting(e.target.value)}
                       className="h-9 rounded border border-zinc-300 px-3 text-xs font-semibold outline-none focus:border-indigo-500 bg-white"
                     >
-                      <option value="20">20 Labels per Sheet, Sheet Size: 8.5" x 11"</option>
-                      <option value="30">30 Labels per Sheet, Sheet Size: 8.5" x 11"</option>
+                      <option value="20">20 Labels per Sheet, Sheet Size: 8.5&quot; x 11&quot;</option>
+                      <option value="30">30 Labels per Sheet, Sheet Size: 8.5&quot; x 11&quot;</option>
                     </select>
                   </div>
 

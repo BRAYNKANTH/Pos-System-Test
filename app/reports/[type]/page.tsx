@@ -22,7 +22,7 @@ interface ReportData {
   description: string;
   type: string;
   headers: string[];
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   summaryCards: SummaryCard[];
   chartData: ChartItem[];
   
@@ -77,7 +77,7 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
   let title = "";
   let description = "";
   let headers: string[] = [];
-  let rows: Record<string, any>[] = [];
+  let rows: Record<string, unknown>[] = [];
   let summaryCards: SummaryCard[] = [];
   let chartData: ChartItem[] = [];
   let plMetrics: Record<string, number> | undefined = undefined;

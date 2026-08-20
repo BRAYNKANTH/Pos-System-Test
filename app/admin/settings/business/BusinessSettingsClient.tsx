@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import type { LucideIcon } from "lucide-react";
 import {
   Settings,
   ShieldAlert,
@@ -35,7 +36,7 @@ export default function BusinessSettingsClient() {
   const [activeTab, setActiveTab] = useState<TabId>("business");
 
   // Tab List matching Image 2
-  const tabs: { id: TabId; label: string; icon: any }[] = [
+  const tabs: { id: TabId; label: string; icon: LucideIcon }[] = [
     { id: "business", label: "Business", icon: Briefcase },
     { id: "tax", label: "Tax", icon: ShieldAlert },
     { id: "product", label: "Product", icon: Settings },

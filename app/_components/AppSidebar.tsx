@@ -54,14 +54,19 @@ export function AppSidebar({
   const [businessName, setBusinessName] = useState(initialBizName ?? "");
 
   useEffect(() => {
-    // If parent supplied it, sync the state and cache it
+    // If parent supplied it, sync the state and cache it. Synchronous
+    // setState calls here are intentional — syncing to a prop that can
+    // arrive/change after mount, and reading sessionStorage (an external
+    // system), not something derivable from render alone.
     if (initialBizName) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBusinessName(initialBizName);
       setCachedBizName(initialBizName);
       return;
     }
     const cached = getCachedBizName();
     if (cached) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBusinessName(cached);
       return;
     }
@@ -182,6 +187,10 @@ export function AppSidebar({
               {navLink("/inventory/print-labels", "Print Labels")}
               {navLink("/inventory/categories", "Categories")}
               {navLink("/inventory/brands", "Brands")}
+              {/* Was reachable only by typing the URL directly — a fully
+                  built, permission-gated approval queue with no link
+                  anywhere in the app. */}
+              {navLink("/admin/approvals/inventory", "Stock Adjustment Approvals")}
             </div>
           </details>
 
@@ -229,6 +238,15 @@ export function AppSidebar({
               {navLink("/sales/shipments", "Shipments")}
               {navLink("/sales/discounts", "Discounts")}
               {navLink("/admin/gift-cards", "Gift Cards")}
+              {navLink("/sales/import", "Import Sales")}
+              {navLink("/orders", "Order Status Tracker")}
+              {/* Bills/bill-change-requests were only reachable from a
+                  cashier error toast ("Request a bill change from the
+                  Bills panel") that itself linked nowhere — there was no
+                  actual panel to land on. */}
+              {navLink("/bills", "Bills")}
+              {navLink("/bills/requests", "My Bill Change Requests")}
+              {navLink("/admin/approvals/bills", "Bill Change Approvals")}
             </div>
           </details>
 
@@ -279,6 +297,7 @@ export function AppSidebar({
               {navLink("/admin/settings/printers", "Receipt Printers")}
               {navLink("/admin/settings/tax", "Tax Rates")}
               {isModuleEnabled("zoho") && navLink("/admin/settings/integrations", "Zoho Integration")}
+              {isModuleEnabled("zoho") && navLink("/admin/sync-status", "Zoho Sync Status")}
               {navLink("/admin/settings/roles", "Roles")}
             </div>
           </details>

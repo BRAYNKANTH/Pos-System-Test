@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
-import { apiError, apiSuccess } from "@/lib/api-response";
+import { apiError, apiSuccess, errorMessage } from "@/lib/api-response";
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       approverName: matchingUser.name,
       role: matchingUser.role,
     });
-  } catch (err: any) {
-    return apiError("INTERNAL_ERROR", err.message || "Failed to verify PIN", { status: 500 });
+  } catch (err) {
+    return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to verify PIN"), { status: 500 });
   }
 }

@@ -37,6 +37,7 @@ import {
   FileDown,
   Menu
 } from "lucide-react";
+import { errorMessage } from "@/lib/errors";
 
 interface InventoryItem {
   sku: string;
@@ -111,18 +112,31 @@ export default function InventoryListClient({
   }, []);
   const defaultLocation = locations.find((l) => l.isDefault) ?? locations[0] ?? null;
 
-  useEffect(() => {
+  // Populate the stock-edit form whenever a different item is opened for
+  // editing — adjusted during render (comparing against the last-seen
+  // `editingStockItem`) rather than in a useEffect, per React's own
+  // guidance for "adjusting state when a prop changes":
+  // https://react.dev/learn/you-might-not-need-an-effect
+  const [prevEditingStockItem, setPrevEditingStockItem] = useState<InventoryItem | null>(null);
+  if (editingStockItem !== prevEditingStockItem) {
+    setPrevEditingStockItem(editingStockItem);
     if (editingStockItem) {
-      const urlParams = new URLSearchParams(window.location.search);
-      const isFromAddProduct = urlParams.get("addStockSku") === editingStockItem.sku;
-      
+      // Guarded even though editingStockItem can in practice only become
+      // non-null from a client-side interaction (never during the initial
+      // server render) — this block now runs during render rather than in
+      // an effect, so it can no longer rely on effects' implicit
+      // client-only timing.
+      const isFromAddProduct =
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("addStockSku") === editingStockItem.sku;
+
       setNewStockQty(isFromAddProduct ? "0.00" : editingStockItem.qtyOnHand.toString());
       setOpeningStockCost(editingStockItem.purchasePrice.toFixed(2));
       setOpeningStockExpDate("");
       setOpeningStockDate(new Date().toISOString().slice(0, 10));
       setOpeningStockNote("");
     }
-  }, [editingStockItem]);
+  }
 
   // Receive Stock modal — adds to the current qty (goods received from a
   // supplier / ad-hoc restock), as opposed to "Add or edit stock" above
@@ -162,6 +176,10 @@ export default function InventoryListClient({
     if (addStockSku) {
       const foundItem = items.find(i => i.sku === addStockSku);
       if (foundItem) {
+        // Reading the URL's query string requires the DOM (not available
+        // during render/SSR), so this can only run inside an effect —
+        // there's no derived-state alternative here.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setEditingStockItem(foundItem);
         // Clear the query parameter from the browser URL address bar immediately
         // so that updating local items state doesn't re-trigger this modal.
@@ -214,8 +232,8 @@ export default function InventoryListClient({
 
       triggerAlert("success", `Product "${name}" deleted successfully.`);
       setItems(items.filter((item) => item.sku !== sku));
-    } catch (err: any) {
-      triggerAlert("error", err.message || "An error occurred.");
+    } catch (err) {
+      triggerAlert("error", errorMessage(err, "An error occurred."));
     }
   };
 
@@ -246,8 +264,8 @@ export default function InventoryListClient({
 
       setItems([...items, { ...item, sku: newSku, name: newName, qtyOnHand: 0 }]);
       triggerAlert("success", `Product duplicated successfully as "${newName}"!`);
-    } catch (err: any) {
-      triggerAlert("error", err.message || "Failed to duplicate product.");
+    } catch (err) {
+      triggerAlert("error", errorMessage(err, "Failed to duplicate product."));
     }
   };
 
@@ -262,7 +280,7 @@ export default function InventoryListClient({
       const data = await res.json();
       if (res.ok && Array.isArray(data.data)) {
         // Filter adjustments matching this sku
-        const logs = data.data.filter((log: any) => log.sku === item.sku);
+        const logs = data.data.filter((log: { sku: string }) => log.sku === item.sku);
         setHistoryLogs(logs);
       }
     } catch (err) {
@@ -333,8 +351,8 @@ export default function InventoryListClient({
       );
       triggerAlert("success", `Stock for "${editingStockItem.name}" updated to ${qty}.`);
       setEditingStockItem(null);
-    } catch (err: any) {
-      alert(err.message || "An error occurred.");
+    } catch (err) {
+      alert(errorMessage(err, "An error occurred."));
     } finally {
       setAdjustingStock(false);
     }
@@ -373,8 +391,8 @@ export default function InventoryListClient({
       triggerAlert("success", `Received ${qty} units of "${receivingItem.name}".`);
       setReceivingItem(null);
       setReceiveQty("");
-    } catch (err: any) {
-      alert(err.message || "An error occurred.");
+    } catch (err) {
+      alert(errorMessage(err, "An error occurred."));
     } finally {
       setReceivingStock(false);
     }

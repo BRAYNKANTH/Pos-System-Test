@@ -40,7 +40,11 @@ export function TaxonomyManager({
     }
   }
 
+  // Fetch-on-mount effect — load() sets state synchronously (setError(""))
+  // before its first await, which is what trips this rule; that's the
+  // intended "clear any previous error, then fetch" sequencing, not a bug.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
