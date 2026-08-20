@@ -11,45 +11,129 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  // Fetch real statistics from the DB. Was previously two separate,
-  // sequential, unbounded `findMany()` calls fetching every column of
-  // every row just to sum a couple of fields in JS — on a connection
-  // with real network latency, that's the difference between one fast
-  // DB-side aggregate and two slow full-table transfers. Now: one
-  // DB-side sum (`aggregate`) + one narrow, bounded `findMany`, run in
-  // parallel.
-  const [completedAgg, unpaidTransactions] = await Promise.all([
+  // Calculate Today's date range (00:00:00 to 23:59:59 local server time)
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  // Fetch real statistics from DB concurrently
+  const [
+    todayCompletedAgg,
+    todayCompletedCount,
+    todayPurchasesAgg,
+    allTimeCompletedAgg,
+    allTimePurchasesAgg,
+    unpaidTransactions,
+    todayTransactionsList,
+  ] = await Promise.all([
+    // Today's completed sales
+    prisma.transaction.aggregate({
+      where: {
+        status: "completed",
+        createdAt: { gte: startOfToday, lte: endOfToday },
+      },
+      _sum: { total: true, subtotal: true },
+    }),
+    // Today's order count
+    prisma.transaction.count({
+      where: {
+        status: "completed",
+        createdAt: { gte: startOfToday, lte: endOfToday },
+      },
+    }),
+    // Today's goods received purchases
+    prisma.purchase.aggregate({
+      where: {
+        createdAt: { gte: startOfToday, lte: endOfToday },
+      },
+      _sum: { totalAmount: true },
+    }),
+    // All time completed sales
     prisma.transaction.aggregate({
       where: { status: "completed" },
       _sum: { total: true, subtotal: true },
     }),
+    // All time purchases
+    prisma.purchase.aggregate({
+      where: { status: "Completed" },
+      _sum: { totalAmount: true },
+    }),
+    // Unpaid/Due transactions
     prisma.transaction.findMany({
       where: { status: { notIn: ["completed", "voided"] } },
-      select: { id: true, total: true },
+      select: { id: true, total: true, customer: { select: { name: true } }, createdAt: true },
       take: 50,
       orderBy: { createdAt: "desc" },
     }),
+    // Today's recent transactions list for daily review
+    prisma.transaction.findMany({
+      where: {
+        createdAt: { gte: startOfToday, lte: endOfToday },
+      },
+      select: {
+        id: true,
+        total: true,
+        subtotal: true,
+        paymentMethod: true,
+        status: true,
+        createdAt: true,
+        cashier: { select: { name: true } },
+        customer: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
   ]);
 
-  // Sum calculations
-  const totalSalesVal = Number(completedAgg._sum.total ?? 0);
-  const netRevenueVal = Number(completedAgg._sum.subtotal ?? 0);
+  // Today calculations
+  const todaySalesVal = Number(todayCompletedAgg._sum.total ?? 0);
+  const todayNetRevenueVal = Number(todayCompletedAgg._sum.subtotal ?? 0);
+  const todayPurchaseVal = Number(todayPurchasesAgg._sum.totalAmount ?? 0);
+
+  // All time calculations
+  const allTimeSalesVal = Number(allTimeCompletedAgg._sum.total ?? 0);
+  const allTimeNetRevenueVal = Number(allTimeCompletedAgg._sum.subtotal ?? 0);
+  const allTimePurchaseVal = Number(allTimePurchasesAgg._sum.totalAmount ?? 0);
   const invoiceDueVal = unpaidTransactions.reduce((sum, t) => sum + Number(t.total), 0);
 
   const stats = {
-    totalSales: totalSalesVal,
-    netRevenue: netRevenueVal,
+    // Today's daily metrics (Default view)
+    todaySales: todaySalesVal,
+    todayNetRevenue: todayNetRevenueVal,
+    todayOrderCount: todayCompletedCount,
+    todayPurchase: todayPurchaseVal,
+
+    // All time metrics
+    allTimeSales: allTimeSalesVal,
+    allTimeNetRevenue: allTimeNetRevenueVal,
+    allTimePurchase: allTimePurchaseVal,
+
+    // Active Dashboard metrics (defaults to Today's Sales for daily review)
+    totalSales: todaySalesVal,
+    netRevenue: todayNetRevenueVal,
     invoiceDue: invoiceDueVal,
     sellReturns: 0.0,
-    totalPurchase: 0.0,
+    totalPurchase: todayPurchaseVal,
     purchaseDue: 0.0,
     purchaseReturns: 0.0,
-    expenses: 1250.0, // Mock baseline expense
+    expenses: 0.0,
   };
 
   const formattedUnpaid = unpaidTransactions.map((tx) => ({
     id: tx.id,
+    customerName: tx.customer?.name || "Walk-In Customer",
     total: Number(tx.total),
+  }));
+
+  const formattedTodayTransactions = todayTransactionsList.map((tx) => ({
+    id: tx.id,
+    total: Number(tx.total),
+    subtotal: Number(tx.subtotal),
+    paymentMethod: tx.paymentMethod,
+    status: tx.status,
+    cashierName: tx.cashier.name,
+    customerName: tx.customer?.name || "Walk-In Customer",
+    time: tx.createdAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
   }));
 
   return (
@@ -57,6 +141,7 @@ export default async function DashboardPage() {
       user={{ name: user.name, role: user.role }}
       stats={stats}
       unpaidTransactions={formattedUnpaid}
+      todayTransactions={formattedTodayTransactions}
     />
   );
 }
