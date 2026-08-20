@@ -421,8 +421,14 @@ export default function InventoryListClient({
           <div className="flex items-center justify-between print:hidden">
             <div>
               <h1 className="text-xl font-bold text-zinc-800 tracking-tight">Products</h1>
-              <p className="text-xs text-zinc-450 mt-0.5">Manage your products</p>
+              <p className="text-xs text-zinc-450 mt-0.5">Manage your products catalog &amp; inventory</p>
             </div>
+            <Link
+              href="/purchases/add"
+              className="bg-indigo-650 hover:bg-indigo-750 text-white px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+            >
+              <Plus className="h-4 w-4" /> Add Product
+            </Link>
           </div>
 
           {/* Alert Banners */}
