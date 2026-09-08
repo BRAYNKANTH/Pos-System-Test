@@ -6,10 +6,29 @@ export type LinePriceOverride = { newPrice: number; reason: string };
 export type LineDiscount = { type: "percent" | "amount"; value: number };
 
 export type CartLine = {
+  /** Unique per cart line — NOT the same as `sku`. Two lines can share a
+   * SKU (two separately-weighed bags of the same loose item, two
+   * serialized units of the same model), and every per-line action below
+   * (remove, qty, price override, batch, serials, ...) addresses a line
+   * by this `id`, never by `sku` — keying by sku would apply the action
+   * to every line sharing that SKU at once. */
+  id: string;
   sku: string;
   name: string;
   unitPrice: number;
   qty: number;
+  purchasePrice?: number;
+  scaleWeight?: number;
+  /** Catalog per-kg rate, for display only ("0.450 kg @ Rs 200.00/kg") —
+   * `unitPrice` above is already the resolved charge for this line (see
+   * lib/pos/scale-barcode.ts's docs on why). */
+  displayRatePerKg?: number;
+  isScaleItem?: boolean;
+  isReturnable?: boolean;
+  trackSerial?: boolean;
+  trackBatch?: boolean;
+  batchNumber?: string;
+  serialNumbers?: string[];
   /** Manager-discretion price override for this line only (damaged item,
    * price match, etc) — checkout audit-logs it, gated by PRICE_OVERRIDE. */
   priceOverride?: LinePriceOverride | null;
@@ -29,6 +48,15 @@ export type CartDiscount = { type: "percent" | "amount"; value: number } | null;
  * actually deduct the points server-side (see applyLoyaltyRedeem's docs). */
 export type LoyaltyRedeem = { points: number; value: number } | null;
 
+/** A line from a source that never had (or may not have) per-line
+ * identity — a held cart's stored JSON, or a quotation's items. */
+type CartLineMaybeWithId = Omit<CartLine, "id"> & { id?: string };
+
+/** Assigns a fresh line id to any line that doesn't already have one. */
+function withLineIds(lines: CartLineMaybeWithId[]): CartLine[] {
+  return lines.map((l) => ({ ...l, id: l.id || crypto.randomUUID() }));
+}
+
 type CartState = {
   lines: CartLine[];
   discount: CartDiscount;
@@ -37,39 +65,49 @@ type CartState = {
   customerId: string | null;
   customerName: string | null;
   heldCartId: string | null;
-  addItem: (item: { sku: string; name: string; unitPrice: number }) => void;
-  removeItem: (sku: string) => void;
-  setQty: (sku: string, qty: number) => void;
-  setLinePriceOverride: (sku: string, override: LinePriceOverride | null) => void;
-  setLineDiscount: (sku: string, discount: LineDiscount | null) => void;
-  setLineDescription: (sku: string, description: string | null) => void;
-  setLineLotExpiry: (sku: string, lotExpiry: string | null) => void;
-  setLineUnit: (sku: string, unit: string | null) => void;
+  addItem: (
+    item: {
+      sku: string;
+      name: string;
+      unitPrice: number;
+      purchasePrice?: number;
+      scaleWeight?: number;
+      displayRatePerKg?: number;
+      isScaleItem?: boolean;
+      isReturnable?: boolean;
+      trackSerial?: boolean;
+      trackBatch?: boolean;
+      batchNumber?: string;
+      serialNumbers?: string[];
+    },
+    initialQty?: number,
+  ) => void;
+  removeItem: (id: string) => void;
+  setQty: (id: string, qty: number) => void;
+  setLineScaleWeight: (id: string, scaleWeight: number) => void;
+  setLineBatch: (id: string, batchNumber: string) => void;
+  setLineSerials: (id: string, serialNumbers: string[]) => void;
+  setLinePriceOverride: (id: string, override: LinePriceOverride | null) => void;
+  setLineDiscount: (id: string, discount: LineDiscount | null) => void;
+  setLineDescription: (id: string, description: string | null) => void;
+  setLineLotExpiry: (id: string, lotExpiry: string | null) => void;
+  setLineUnit: (id: string, unit: string | null) => void;
   setDiscount: (discount: CartDiscount) => void;
-  /** Apply a cart discount funded by spending the customer's loyalty
-   * points. Distinct from setDiscount so checkout can tell "redeem N
-   * points" apart from an arbitrary manual/promo discount of the same Rs
-   * value — the server is the one that actually deducts the points, this
-   * only stages the intent + the discount preview. */
   applyLoyaltyRedeem: (points: number, value: number) => void;
   clearLoyaltyRedeem: () => void;
   setShipping: (shipping: number) => void;
   setCustomer: (customer: { id: string; name: string } | null) => void;
   setHeldCartId: (id: string | null) => void;
-  /** Reloads a held cart's contents (see /api/pos/hold/:id resume). */
   loadHeldCart: (data: {
     id: string;
-    lines: CartLine[];
+    lines: CartLineMaybeWithId[];
     discount: CartDiscount;
     shipping: number;
     customerId: string | null;
     customerName: string | null;
   }) => void;
-  /** Loads a converted Quotation's items into the cart — deliberately
-   * doesn't touch heldCartId (unlike loadHeldCart), since a quotation
-   * isn't a HeldCart row and nothing should try to DELETE it on resume. */
   loadQuotationItems: (data: {
-    lines: CartLine[];
+    lines: CartLineMaybeWithId[];
     customerId: string | null;
     customerName: string | null;
   }) => void;
@@ -78,9 +116,7 @@ type CartState = {
 
 // Plain in-memory Zustand store — survives client-side navigation between
 // /pos and /pos/payment (Next.js App Router doesn't full-reload for
-// internal links), but not a hard page refresh. Good enough for a single
-// checkout flow; not persisted to storage (park a cart server-side via
-// Suspend/Draft — lib/pos — instead of relying on this surviving a reload).
+// internal links), but not a hard page refresh.
 export const useCartStore = create<CartState>((set) => ({
   lines: [],
   discount: null,
@@ -89,11 +125,6 @@ export const useCartStore = create<CartState>((set) => ({
   customerId: null,
   customerName: null,
   heldCartId: null,
-  // Any direct discount edit (including clearing it) invalidates a prior
-  // loyalty redemption tag — otherwise a cashier could apply the loyalty
-  // discount, then edit the Rs/percent value inline, and checkout would
-  // still try to redeem the original point count against a now-mismatched
-  // discount amount.
   setDiscount: (discount) => set({ discount, loyaltyRedeem: null }),
   applyLoyaltyRedeem: (points, value) =>
     set({ discount: { type: "amount", value }, loyaltyRedeem: { points, value } }),
@@ -105,12 +136,8 @@ export const useCartStore = create<CartState>((set) => ({
   loadHeldCart: (data) =>
     set({
       heldCartId: data.id,
-      lines: data.lines,
+      lines: withLineIds(data.lines),
       discount: data.discount,
-      // Held carts don't persist which discount was a loyalty redemption —
-      // treat a resumed discount as a plain one rather than assuming it
-      // still maps to the same point count on the (possibly now-different)
-      // customer.
       loyaltyRedeem: null,
       shipping: data.shipping,
       customerId: data.customerId,
@@ -118,50 +145,73 @@ export const useCartStore = create<CartState>((set) => ({
     }),
   loadQuotationItems: (data) =>
     set({
-      lines: data.lines,
+      lines: withLineIds(data.lines),
       customerId: data.customerId,
       customerName: data.customerName,
       discount: null,
       loyaltyRedeem: null,
       shipping: 0,
     }),
-  addItem: (item) =>
+  addItem: (item, initialQty = 1) =>
     set((state) => {
-      const existing = state.lines.find((l) => l.sku === item.sku);
-      if (existing) {
-        return {
-          lines: state.lines.map((l) => (l.sku === item.sku ? { ...l, qty: l.qty + 1 } : l)),
-        };
+      // Scale-weighed and serial-tracked items never merge into an
+      // existing line, even when the SKU matches — each is its own
+      // physical event (a distinct weighing, a distinct serialized unit)
+      // carrying its own weight/serial that a merged qty count can't
+      // represent. Merging used to silently keep only the FIRST scan's
+      // weight/serial and just bump qty, which meant re-weighing the same
+      // product (two bags of the same loose item) or selling two
+      // serialized units of the same SKU quietly undercharged or
+      // under-tracked the second one.
+      if (!item.isScaleItem && !item.trackSerial) {
+        const existing = state.lines.find((l) => l.sku === item.sku);
+        if (existing) {
+          return {
+            lines: state.lines.map((l) => (l.id === existing.id ? { ...l, qty: l.qty + initialQty } : l)),
+          };
+        }
       }
-      return { lines: [...state.lines, { ...item, qty: 1 }] };
+      return { lines: [...state.lines, { ...item, id: crypto.randomUUID(), qty: initialQty }] };
     }),
-  removeItem: (sku) => set((state) => ({ lines: state.lines.filter((l) => l.sku !== sku) })),
-  setQty: (sku, qty) =>
+  removeItem: (id) => set((state) => ({ lines: state.lines.filter((l) => l.id !== id) })),
+  setQty: (id, qty) =>
     set((state) => ({
       lines:
         qty <= 0
-          ? state.lines.filter((l) => l.sku !== sku)
-          : state.lines.map((l) => (l.sku === sku ? { ...l, qty } : l)),
+          ? state.lines.filter((l) => l.id !== id)
+          : state.lines.map((l) => (l.id === id ? { ...l, qty } : l)),
     })),
-  setLinePriceOverride: (sku, override) =>
+  setLineScaleWeight: (id, scaleWeight) =>
     set((state) => ({
-      lines: state.lines.map((l) => (l.sku === sku ? { ...l, priceOverride: override } : l)),
+      lines: state.lines.map((l) => (l.id === id ? { ...l, scaleWeight } : l)),
     })),
-  setLineDiscount: (sku, discount) =>
+  setLineBatch: (id, batchNumber) =>
     set((state) => ({
-      lines: state.lines.map((l) => (l.sku === sku ? { ...l, lineDiscount: discount } : l)),
+      lines: state.lines.map((l) => (l.id === id ? { ...l, batchNumber } : l)),
     })),
-  setLineDescription: (sku, description) =>
+  setLineSerials: (id, serialNumbers) =>
     set((state) => ({
-      lines: state.lines.map((l) => (l.sku === sku ? { ...l, description } : l)),
+      lines: state.lines.map((l) => (l.id === id ? { ...l, serialNumbers } : l)),
     })),
-  setLineLotExpiry: (sku, lotExpiry) =>
+  setLinePriceOverride: (id, override) =>
     set((state) => ({
-      lines: state.lines.map((l) => (l.sku === sku ? { ...l, lotExpiry } : l)),
+      lines: state.lines.map((l) => (l.id === id ? { ...l, priceOverride: override } : l)),
     })),
-  setLineUnit: (sku, unit) =>
+  setLineDiscount: (id, discount) =>
     set((state) => ({
-      lines: state.lines.map((l) => (l.sku === sku ? { ...l, unit } : l)),
+      lines: state.lines.map((l) => (l.id === id ? { ...l, lineDiscount: discount } : l)),
+    })),
+  setLineDescription: (id, description) =>
+    set((state) => ({
+      lines: state.lines.map((l) => (l.id === id ? { ...l, description } : l)),
+    })),
+  setLineLotExpiry: (id, lotExpiry) =>
+    set((state) => ({
+      lines: state.lines.map((l) => (l.id === id ? { ...l, lotExpiry } : l)),
+    })),
+  setLineUnit: (id, unit) =>
+    set((state) => ({
+      lines: state.lines.map((l) => (l.id === id ? { ...l, unit } : l)),
     })),
   clear: () =>
     set({ lines: [], discount: null, loyaltyRedeem: null, shipping: 0, customerId: null, customerName: null, heldCartId: null }),

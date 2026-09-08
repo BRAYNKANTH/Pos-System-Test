@@ -3,6 +3,8 @@ import { prisma, TRANSACTION_OPTIONS } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit/writeAuditLog";
 import { creditDefaultLocation, debitDefaultLocationBestEffort } from "@/lib/inventory/locationStock";
 import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
+import { restockBatch } from "@/lib/inventory/batches";
+import { registerSerials } from "@/lib/inventory/serials";
 
 export class InsufficientStockError extends Error {
   constructor(public sku: string) {
@@ -69,8 +71,22 @@ export function syncLocationStockAfterSale(sku: string, qty: number): void {
 
 /** Automated increase from purchase orders / goods receipt. Not
  * threshold-checked — receiving stock isn't a "sudden/large" risk the way
- * depleting it or a manual write-off is. */
-export async function increaseStockOnReceipt(sku: string, qty: number) {
+ * depleting it or a manual write-off is.
+ *
+ * `batch` and `serialNumbers` are the only way batch-lot and
+ * serial-tracked stock ever legitimately enters the system — without
+ * this, trackBatch just silently drifted from the real count (nothing
+ * could ever add to a batch) and trackSerial had no registration path at
+ * all (see serials.ts's docs on why sale-time auto-registration was
+ * removed). */
+export async function increaseStockOnReceipt(
+  sku: string,
+  qty: number,
+  options?: {
+    batch?: { batchNumber: string; expiryDate?: Date; costPrice?: number };
+    serialNumbers?: string[];
+  },
+) {
   const adjustment = await prisma.$transaction(async (tx) => {
     const result = await tx.inventoryItem.updateMany({
       where: { sku },
@@ -91,6 +107,14 @@ export async function increaseStockOnReceipt(sku: string, qty: number) {
     });
 
     await creditDefaultLocation(tx, sku, qty);
+
+    if (options?.batch) {
+      await restockBatch(tx, sku, qty, options.batch.batchNumber, options.batch.expiryDate, options.batch.costPrice);
+    }
+    if (options?.serialNumbers && options.serialNumbers.length > 0) {
+      await registerSerials(tx, sku, options.serialNumbers);
+    }
+
     return adjustment;
   }, TRANSACTION_OPTIONS);
 

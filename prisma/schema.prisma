@@ -141,6 +141,9 @@ model TransactionItem {
   unitPrice           Decimal     @db.Decimal(12, 2)
   discount            Decimal     @default(0) @db.Decimal(12, 2)
   taxAmount           Decimal     @default(0) @db.Decimal(12, 2)
+  scaleWeight         Decimal?    @db.Decimal(10, 3)
+  batchNumber         String?
+  serialNumbers       Json?
   /// Set only when a cashier/manager overrode the catalog price at
   /// checkout (damaged item, discretionary price-match, etc). `unitPrice`
   /// above is the overridden price actually charged; this is what the
@@ -150,6 +153,8 @@ model TransactionItem {
   priceOverrideReason String?
   transaction         Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
+  @@index([sku])
+  @@index([transactionId])
   @@map("transaction_items")
 }
 
@@ -213,10 +218,17 @@ model InventoryItem {
   brand             String?
   category          String?
   zohoItemId        String?
+  isReturnable      Boolean           @default(true)
+  isScaleItem       Boolean           @default(false)
+  trackSerial       Boolean           @default(false)
+  trackBatch        Boolean           @default(false)
   adjustments       StockAdjustment[]
   locationStock     LocationStock[]
   purchaseItems     PurchaseItem[]
+  batches           ItemBatch[]
+  serials           ItemSerial[]
 
+  @@index([category, brand])
   @@map("inventory_items")
 }
 
@@ -687,4 +699,35 @@ model StoreCredit {
   customer   Customer @relation(fields: [customerId], references: [id])
 
   @@map("store_credits")
+}
+
+model ItemBatch {
+  id          String        @id @default(cuid())
+  sku         String
+  batchNumber String
+  qtyOnHand   Int           @default(0)
+  costPrice   Decimal?      @db.Decimal(12, 2)
+  expiryDate  DateTime?
+  createdAt   DateTime      @default(now())
+  item        InventoryItem @relation(fields: [sku], references: [sku], onDelete: Cascade)
+
+  @@unique([sku, batchNumber])
+  @@index([sku])
+  @@map("item_batches")
+}
+
+model ItemSerial {
+  id            String        @id @default(cuid())
+  sku           String
+  serialNumber  String
+  status        String        @default("available") // available | sold | returned
+  transactionId String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  item          InventoryItem @relation(fields: [sku], references: [sku], onDelete: Cascade)
+
+  @@unique([sku, serialNumber])
+  @@index([sku, status])
+  @@map("item_serials")
 }

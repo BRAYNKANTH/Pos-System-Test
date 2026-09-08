@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { apiError, apiSuccess, errorMessage } from "@/lib/api-response";
+import { verifyManagerPin } from "@/lib/auth/managerPin";
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,39 +15,23 @@ export async function POST(req: NextRequest) {
       return apiError("INVALID_INPUT", "Security PIN is required", { status: 400 });
     }
 
-    // Check if PIN matches any Manager or Admin user in the system
-    const authorizedUsers = await prisma.user.findMany({
-      where: {
-        role: { in: ["ADMIN", "MANAGER"] },
-        pinCode: { not: null },
-      },
-      select: {
-        id: true,
-        name: true,
-        role: true,
-        pinCode: true,
-      },
-    });
-
-    const matchingUser = authorizedUsers.find((u) => u.pinCode === pin);
-
-    if (!matchingUser) {
-      // Fallback: If no custom PIN was set on managers yet, allow default PIN "1234" or "0000" for emergency manager bypass
-      if (pin === "1234" || pin === "0000") {
-        return apiSuccess({
-          authorized: true,
-          approverName: "Manager Approval (Default PIN)",
-          role: "MANAGER",
-        });
+    const result = await verifyManagerPin(pin);
+    if (!result.ok) {
+      if (result.reason === "NO_PIN_CONFIGURED") {
+        return apiError(
+          "NO_PIN_CONFIGURED",
+          "No manager or admin has a PIN set up yet — set one in Admin → Users before this can be used.",
+          { status: 409 },
+        );
       }
       return apiError("UNAUTHORIZED_PIN", "Invalid Manager PIN code", { status: 403 });
     }
 
     return apiSuccess({
       authorized: true,
-      approverId: matchingUser.id,
-      approverName: matchingUser.name,
-      role: matchingUser.role,
+      approverId: result.approverId,
+      approverName: result.approverName,
+      role: result.role,
     });
   } catch (err) {
     return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to verify PIN"), { status: 500 });

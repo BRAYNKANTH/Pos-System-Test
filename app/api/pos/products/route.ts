@@ -36,7 +36,12 @@ export async function GET(req: NextRequest) {
       category: item.category,
       brand: item.brand,
       unitPrice: Number(item.unitPrice),
+      purchasePrice: Number(item.purchasePrice) || 0,
       qtyOnHand: item.qtyOnHand,
+      isScaleItem: item.isScaleItem,
+      isReturnable: item.isReturnable,
+      trackSerial: item.trackSerial,
+      trackBatch: item.trackBatch,
     })),
   );
 }

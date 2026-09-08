@@ -64,6 +64,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       unitPrice: Number(item.unitPrice),
       discount: Number(item.discount),
       taxAmount: Number(item.taxAmount),
+      scaleWeight: item.scaleWeight ? Number(item.scaleWeight) : null,
+      batchNumber: item.batchNumber,
     })),
   });
 }

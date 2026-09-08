@@ -33,6 +33,14 @@ export function AddProductClient() {
   const [alertQty, setAlertQty] = useState("10");
   const [openingStock, setOpeningStock] = useState("0");
   const [manageStock, setManageStock] = useState(true);
+  // Tracking options — previously had no UI anywhere in the app, so a
+  // product could never actually be marked scale/serial/batch-tracked or
+  // non-returnable even though checkout, receiving, and returns all had
+  // real logic behind those flags.
+  const [isScaleItem, setIsScaleItem] = useState(false);
+  const [isReturnable, setIsReturnable] = useState(true);
+  const [trackSerial, setTrackSerial] = useState(false);
+  const [trackBatch, setTrackBatch] = useState(false);
   const [description, setDescription] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
@@ -148,6 +156,11 @@ export function AddProductClient() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    if ((trackSerial || trackBatch) && (parseInt(openingStock) || 0) > 0) {
+      setErrorMsg("Batch/lot or serial-tracked products must start at 0 opening stock — use Receive Stock afterward instead.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
 
     setLoading(true);
     setErrorMsg("");
@@ -165,7 +178,11 @@ export function AddProductClient() {
           unitPrice: parseFloat(excTaxSelling) || 0,
           purchasePrice: parseFloat(excTaxPurchase) || 0,
           qtyOnHand: parseInt(openingStock) || 0,
-          lowStockThreshold: parseInt(alertQty) || 0
+          lowStockThreshold: parseInt(alertQty) || 0,
+          isScaleItem,
+          isReturnable,
+          trackSerial,
+          trackBatch,
         })
       });
 
@@ -370,7 +387,11 @@ export function AddProductClient() {
                   onChange={(e) => setOpeningStock(e.target.value)}
                   className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
                 />
-                <p className="text-xs text-zinc-450 mt-1">Goes straight into inventory at {defaultLocation?.name ?? "the default location"} — leave at 0 to add stock later.</p>
+                <p className="text-xs text-zinc-450 mt-1">
+                  {trackSerial || trackBatch
+                    ? "Batch/lot and serial-tracked products must start at 0 — use Receive Stock afterward to bring in the first units with their batch/serial numbers."
+                    : `Goes straight into inventory at ${defaultLocation?.name ?? "the default location"} — leave at 0 to add stock later.`}
+                </p>
               </div>
 
             </div>
@@ -388,6 +409,58 @@ export function AddProductClient() {
                 <label htmlFor="manageStock" className="block text-sm font-bold text-zinc-750 cursor-pointer">Manage Stock?</label>
                 <p className="text-xs text-zinc-450 mt-0.5">Enable stock management at product level</p>
               </div>
+            </div>
+
+            {/* Tracking options */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3.5">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isScaleItem}
+                  onChange={(e) => setIsScaleItem(e.target.checked)}
+                  className="h-4.5 w-4.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 mt-0.5 cursor-pointer"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-zinc-750">Sold by weight (scale item)</span>
+                  <span className="block text-xs text-zinc-450 mt-0.5">Price above is per kg; POS prompts for weight or reads a scale barcode</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!isReturnable}
+                  onChange={(e) => setIsReturnable(!e.target.checked)}
+                  className="h-4.5 w-4.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 mt-0.5 cursor-pointer"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-zinc-750">Final Sale (not returnable)</span>
+                  <span className="block text-xs text-zinc-450 mt-0.5">Returns need a manager PIN override</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={trackBatch}
+                  onChange={(e) => setTrackBatch(e.target.checked)}
+                  className="h-4.5 w-4.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 mt-0.5 cursor-pointer"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-zinc-750">Track batch / lot numbers</span>
+                  <span className="block text-xs text-zinc-450 mt-0.5">For expiry-dated or lot-recalled goods</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={trackSerial}
+                  onChange={(e) => setTrackSerial(e.target.checked)}
+                  className="h-4.5 w-4.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 mt-0.5 cursor-pointer"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-zinc-750">Track serial / IMEI numbers</span>
+                  <span className="block text-xs text-zinc-450 mt-0.5">One serial required per unit sold</span>
+                </span>
+              </label>
             </div>
 
             {/* Description and files select grid */}

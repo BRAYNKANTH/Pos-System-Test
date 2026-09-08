@@ -151,6 +151,20 @@ export default function PosPage() {
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
 
+  // A barcode scanner is just a keyboard emulator — it only reaches
+  // whatever currently has focus. Closing any of these modals (Payment,
+  // Recent/Held Sales, Calculator, Add Expense) leaves focus nowhere in
+  // particular, so the very next scan would go nowhere; refocus the
+  // catalog scan box the moment every modal is closed again.
+  useEffect(() => {
+    if (!isPaymentOpen && !isRecentModalOpen && !isCalculatorOpen && !isExpenseOpen) {
+      const t = setTimeout(() => {
+        document.getElementById("pos-catalog-search-input")?.focus();
+      }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isPaymentOpen, isRecentModalOpen, isCalculatorOpen, isExpenseOpen]);
+
   // Fetch quotations list
   async function fetchQuotations() {
     try {

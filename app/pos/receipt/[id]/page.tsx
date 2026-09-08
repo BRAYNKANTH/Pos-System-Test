@@ -141,12 +141,21 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             const itemPrice = Number(item.unitPrice);
             const discount = Number(item.discount);
             const lineSubtotal = itemPrice * item.qty - discount;
+            const scaleWeight = item.scaleWeight ? Number(item.scaleWeight) : null;
+            const ratePerKg = scaleWeight ? itemPrice / scaleWeight : null;
 
             return (
               <div key={item.id} className="flex justify-between text-zinc-900 font-semibold text-[10px] leading-tight">
-                <span className="flex-1 truncate pr-1" title={displayName}>{displayName}</span>
-                <span className="w-8 text-center font-sans font-normal">{item.qty}</span>
-                <span className="w-14 text-right font-sans font-normal">{itemPrice.toFixed(2)}</span>
+                <span className="flex-1 truncate pr-1" title={displayName}>
+                  {displayName}
+                  {item.batchNumber && <span className="text-zinc-400"> ({item.batchNumber})</span>}
+                </span>
+                <span className="w-8 text-center font-sans font-normal">
+                  {scaleWeight ? `${scaleWeight.toFixed(3)}kg` : item.qty}
+                </span>
+                <span className="w-14 text-right font-sans font-normal">
+                  {ratePerKg !== null ? `${ratePerKg.toFixed(2)}/kg` : itemPrice.toFixed(2)}
+                </span>
                 <span className="w-12 text-right font-sans font-normal text-red-650">
                   {discount > 0 ? `-${discount.toFixed(0)}` : "0.00"}
                 </span>

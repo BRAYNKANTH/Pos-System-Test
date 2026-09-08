@@ -7,13 +7,24 @@ import { apiSuccess, apiError } from "@/lib/api-response";
 import { calculateCart, applyDiscount, type CartLineInput, type DiscountInput } from "@/lib/pos/pricing";
 import { resolveDiscountsForLines } from "@/lib/pos/discounts";
 import { deductStockOnSale, syncLocationStockAfterSale, InsufficientStockError } from "@/lib/inventory/stock";
+import { deductBatchStock, InsufficientBatchStockError } from "@/lib/inventory/batches";
+import { validateAndAssignSerials, InvalidSerialError } from "@/lib/inventory/serials";
 import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
 import { writeAuditLog } from "@/lib/audit/writeAuditLog";
 import { calculateEarnedPoints, calculateLoyaltyTier, pointsToDiscountValue } from "@/lib/customers/loyalty";
 
 type LineDiscount = { type: "percent" | "amount"; value: number };
 type PriceOverride = { newPrice: number; reason: string };
-type RequestLine = { sku: string; qty: number; priceOverride?: PriceOverride; lineDiscount?: LineDiscount };
+type RequestLine = {
+  sku: string;
+  qty: number;
+  priceOverride?: PriceOverride;
+  lineDiscount?: LineDiscount;
+  scaleWeight?: number;
+  batchNumber?: string;
+  serialNumbers?: string[];
+  allowBelowCost?: boolean;
+};
 // giftCardCode carries the voucher code for a "gift_card" tender — kept
 // off the persisted PaymentTender row (schema has no column for it) but
 // used here to validate and atomically deduct the real balance instead of
@@ -43,6 +54,10 @@ export async function POST(req: NextRequest) {
     ? body.items.map((l: RequestLine) => ({
         sku: l.sku,
         qty: l.qty,
+        scaleWeight: Number.isFinite(l.scaleWeight) ? l.scaleWeight : undefined,
+        batchNumber: typeof l.batchNumber === "string" && l.batchNumber ? l.batchNumber : undefined,
+        serialNumbers: Array.isArray(l.serialNumbers) ? l.serialNumbers.map(String) : undefined,
+        allowBelowCost: Boolean(l.allowBelowCost),
         priceOverride:
           l.priceOverride && Number.isFinite(l.priceOverride.newPrice) && l.priceOverride.newPrice >= 0 && l.priceOverride.reason
             ? { newPrice: l.priceOverride.newPrice, reason: String(l.priceOverride.reason).trim() }
@@ -149,6 +164,22 @@ export async function POST(req: NextRequest) {
     return apiError("UNKNOWN_SKU", `Unknown SKU(s): ${missing.join(", ")}`, { status: 400 });
   }
 
+  // Serial-tracked products must carry exactly one serial per unit sold —
+  // previously this was optional, so a cashier could sell qty 2 of a
+  // serialized item (two phones) with only one serial entered, and the
+  // second unit would walk out with no serial record at all.
+  for (const l of requestLines) {
+    if (!bySku.get(l.sku)?.trackSerial) continue;
+    const count = l.serialNumbers?.length ?? 0;
+    if (count !== l.qty) {
+      return apiError(
+        "SERIAL_COUNT_MISMATCH",
+        `${l.sku} is serial-tracked and needs exactly ${l.qty} serial number(s) (got ${count})`,
+        { status: 400 },
+      );
+    }
+  }
+
   // Auto-apply any active scheduled Discount (Discounts settings page)
   // matching each line's sku/brand/category before the optional manual
   // cashier-entered discount stacks on top (see applyDiscount).
@@ -167,21 +198,28 @@ export async function POST(req: NextRequest) {
     requestLines.filter((l) => l.priceOverride).map((l) => [l.sku, l.priceOverride!]),
   );
 
-  let lines: CartLineInput[] = requestLines.map((l) => ({
-    sku: l.sku,
-    qty: l.qty,
-    unitPrice: overridesBySku.has(l.sku) ? overridesBySku.get(l.sku)!.newPrice : Number(bySku.get(l.sku)!.unitPrice),
-    discount: autoDiscounts.get(l.sku)?.amountForLine ?? 0,
-  }));
+  let lines: CartLineInput[] = requestLines.map((l) => {
+    const inv = bySku.get(l.sku)!;
+    return {
+      sku: l.sku,
+      qty: l.qty,
+      unitPrice: overridesBySku.has(l.sku) ? overridesBySku.get(l.sku)!.newPrice : Number(inv.unitPrice),
+      discount: autoDiscounts.get(l.sku)?.amountForLine ?? 0,
+      purchasePrice: Number(inv.purchasePrice) || 0,
+      scaleWeight: l.scaleWeight,
+      allowBelowCost: l.allowBelowCost,
+    };
+  });
 
   // Per-line manual discounts (separate control from the cart-level
-  // `discount` below) — applied one sku at a time; applyDiscount's line
-  // scope only ever touches the matching sku, and stacks additively with
-  // whatever's already on that line (see applyDiscount's own docs).
-  for (const l of requestLines) {
-    if (!l.lineDiscount) continue;
-    lines = applyDiscount(lines, { scope: "line", sku: l.sku, type: l.lineDiscount.type, value: l.lineDiscount.value });
-  }
+  // `discount` below) — applied one line at a time by array index (not
+  // sku: two lines can share a sku for scale/serial items), stacking
+  // additively with whatever's already on that line (see applyDiscount's
+  // own docs).
+  requestLines.forEach((l, idx) => {
+    if (!l.lineDiscount) return;
+    lines = applyDiscount(lines, { scope: "line", lineIndex: idx, type: l.lineDiscount.type, value: l.lineDiscount.value });
+  });
 
   if (discount) lines = applyDiscount(lines, discount);
 
@@ -269,9 +307,21 @@ export async function POST(req: NextRequest) {
   // real cash sales against the float.
 
   try {
+    // Positional, not sku-keyed — calculation.lines[i] corresponds to
+    // requestLines[i] 1:1 (calculateCart/applyDiscount only ever .map()
+    // over the input, never filtering or reordering it), and two lines
+    // can legitimately share a sku (scale/serial items never merge — see
+    // cart-store's addItem). A sku-keyed map here would silently collapse
+    // those down to whichever line happened to be seen first, losing the
+    // other line's batch/serial/weight data.
     const result = await prisma.$transaction(async (tx) => {
-      for (const line of calculation.lines) {
+      for (let i = 0; i < calculation.lines.length; i++) {
+        const line = calculation.lines[i];
+        const reqLine = requestLines[i];
         await deductStockOnSale(tx, line.sku, line.qty);
+        if (reqLine?.batchNumber || bySku.get(line.sku)?.trackBatch) {
+          await deductBatchStock(tx, line.sku, line.qty, reqLine?.batchNumber);
+        }
       }
 
       const transaction = await tx.transaction.create({
@@ -286,21 +336,20 @@ export async function POST(req: NextRequest) {
           total: calculation.total,
           paymentMethod,
           idempotencyKey,
-          // createMany (not create) — one batched INSERT for however
-          // many line items/tenders there are, instead of one INSERT per
-          // row. On a connection where every round trip costs real
-          // seconds, a 5-item cart with split payment used to mean 7+
-          // separate inserts just for these two relations.
           items: {
             createMany: {
-              data: calculation.lines.map((line) => {
+              data: calculation.lines.map((line, i) => {
                 const override = overridesBySku.get(line.sku);
+                const reqLine = requestLines[i];
                 return {
                   sku: line.sku,
                   qty: line.qty,
                   unitPrice: line.unitPrice,
                   discount: line.discount,
                   taxAmount: line.taxAmount,
+                  scaleWeight: line.scaleWeight ?? reqLine?.scaleWeight,
+                  batchNumber: reqLine?.batchNumber,
+                  serialNumbers: reqLine?.serialNumbers ? reqLine.serialNumbers : undefined,
                   originalUnitPrice: override ? Number(bySku.get(line.sku)!.unitPrice) : undefined,
                   priceOverrideReason: override?.reason,
                 };
@@ -314,6 +363,15 @@ export async function POST(req: NextRequest) {
           },
         },
       });
+
+      // Validate and assign serial numbers if supplied
+      for (let i = 0; i < calculation.lines.length; i++) {
+        const line = calculation.lines[i];
+        const reqLine = requestLines[i];
+        if (reqLine?.serialNumbers && reqLine.serialNumbers.length > 0) {
+          await validateAndAssignSerials(tx, line.sku, reqLine.serialNumbers, transaction.id);
+        }
+      }
 
       const bill = await tx.bill.create({
         data: { transactionId: transaction.id, status: "locked" },
@@ -406,6 +464,12 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof InsufficientStockError) {
       return apiError("INSUFFICIENT_STOCK", `Not enough stock for ${err.sku}`, { status: 409 });
+    }
+    if (err instanceof InsufficientBatchStockError) {
+      return apiError("INSUFFICIENT_BATCH_STOCK", err.message, { status: 409 });
+    }
+    if (err instanceof InvalidSerialError) {
+      return apiError("INVALID_SERIAL", err.message, { status: 409 });
     }
     if (err instanceof GiftCardValidationError) {
       return apiError("INVALID_GIFT_CARD", err.message, { status: 409 });

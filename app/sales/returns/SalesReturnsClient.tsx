@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Search, RotateCcw, Repeat } from "lucide-react";
+import { Plus, X, Search, RotateCcw, Repeat, ShieldCheck } from "lucide-react";
+import { ManagerPinModal } from "@/app/_components/ManagerPinModal";
 
 type ReturnRow = {
   id: string;
@@ -51,6 +52,16 @@ export function SalesReturnsClient({
   const [exchangeLines, setExchangeLines] = useState<ExchangeLine[]>([]);
   const [netPaymentMethod, setNetPaymentMethod] = useState("cash");
 
+  // "Supervisor Override" was previously just a self-service checkbox —
+  // any cashier could tick it themselves with no actual manager
+  // involvement. It now requires a live manager PIN, verified again
+  // server-side (see handleSubmit) rather than trusted from this earlier
+  // check alone.
+  const [allowNonReturnableOverride, setAllowNonReturnableOverride] = useState(false);
+  const [overridePin, setOverridePin] = useState<string | null>(null);
+  const [overrideApprover, setOverrideApprover] = useState<string | null>(null);
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+
   function openModal() {
     setTxId("");
     setReceipt(null);
@@ -61,6 +72,9 @@ export function SalesReturnsClient({
     setExchangeLines([]);
     setExchangeQuery("");
     setNetPaymentMethod("cash");
+    setAllowNonReturnableOverride(false);
+    setOverridePin(null);
+    setOverrideApprover(null);
     setError("");
     setModalOpen(true);
     if (products.length === 0) {
@@ -151,6 +165,8 @@ export function SalesReturnsClient({
           items,
           reason,
           refundMethod,
+          allowNonReturnableOverride,
+          managerPin: allowNonReturnableOverride ? overridePin : undefined,
           exchangeItems: isExchange ? exchangeLines.map((l) => ({ sku: l.sku, qty: l.qty })) : undefined,
           netPaymentMethod: isExchange ? netPaymentMethod : undefined,
         }),
@@ -232,23 +248,64 @@ export function SalesReturnsClient({
                   Customer: <span className="font-bold text-zinc-700">{receipt.customerName ?? "Walk-In"}</span>
                 </p>
                 <div className="border border-zinc-200 rounded-md divide-y divide-zinc-150">
-                  {receipt.items.map((item) => (
-                    <div key={item.sku} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <div>
-                        <p className="text-xs font-bold text-zinc-800">{item.sku}</p>
-                        <p className="text-[11px] text-zinc-450">Sold qty: {item.qty} · Rs {item.unitPrice.toFixed(2)} each</p>
+                  {receipt.items.map((item) => {
+                    const prodMatch = products.find((p) => p.sku === item.sku);
+                    const isNonReturnable = (prodMatch as { isReturnable?: boolean } | undefined)?.isReturnable === false;
+
+                    return (
+                      <div key={item.sku} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-bold text-zinc-800">{item.sku}</p>
+                            {isNonReturnable && (
+                              <span className="rounded bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.5 font-bold">
+                                Final Sale
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-zinc-450">Sold qty: {item.qty} · Rs {item.unitPrice.toFixed(2)} each</p>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          max={item.qty}
+                          value={returnQty[item.sku] ?? "0"}
+                          onChange={(e) => setReturnQty((prev) => ({ ...prev, [item.sku]: e.target.value }))}
+                          className="h-8 w-20 rounded border border-zinc-300 px-2 text-center text-xs font-mono outline-none focus:border-indigo-500"
+                        />
                       </div>
-                      <input
-                        type="number"
-                        min="0"
-                        max={item.qty}
-                        value={returnQty[item.sku] ?? "0"}
-                        onChange={(e) => setReturnQty((prev) => ({ ...prev, [item.sku]: e.target.value }))}
-                        className="h-8 w-20 rounded border border-zinc-300 px-2 text-center text-xs font-mono outline-none focus:border-indigo-500"
-                      />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+
+                {allowNonReturnableOverride ? (
+                  <div className="flex items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                    <span className="flex items-center gap-1.5">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Final Sale override authorized by {overrideApprover}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAllowNonReturnableOverride(false);
+                        setOverridePin(null);
+                        setOverrideApprover(null);
+                      }}
+                      className="text-emerald-700 hover:text-emerald-900 underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPinModalOpen(true)}
+                    className="flex w-full items-center gap-2 rounded-md border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Supervisor Override: Allow return for Final Sale / Non-Returnable items (requires manager PIN)
+                  </button>
+                )}
 
                 <label className="flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50/50 px-3 py-2.5 text-xs font-bold text-indigo-700 cursor-pointer dark:border-indigo-900 dark:bg-indigo-950/10">
                   <input
@@ -381,6 +438,19 @@ export function SalesReturnsClient({
           </div>
         </div>
       )}
+
+      <ManagerPinModal
+        open={pinModalOpen}
+        title="Authorize Final Sale Return"
+        description="A manager or admin must enter their PIN to allow returning a Final Sale item"
+        onClose={() => setPinModalOpen(false)}
+        onSuccess={({ approverName, pin }) => {
+          setAllowNonReturnableOverride(true);
+          setOverridePin(pin);
+          setOverrideApprover(approverName);
+          setPinModalOpen(false);
+        }}
+      />
 
       <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">

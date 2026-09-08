@@ -4,9 +4,16 @@ import Dexie, { type Table } from "dexie";
 // checkout falls back to this when /api/pos/checkout can't be reached at
 // all (network error), not on a normal server error response.
 export type OfflinePayload = {
-  items: { sku: string; qty: number }[];
-  tenders: { method: string; amount: number }[];
+  items: {
+    sku: string;
+    qty: number;
+    scaleWeight?: number;
+    batchNumber?: string;
+    serialNumbers?: string[];
+  }[];
+  tenders: { method: string; amount: number; giftCardCode?: string }[];
   discount?: { scope: "cart"; type: "percent" | "amount"; value: number };
+  redeemLoyaltyPoints?: number;
   shipping?: number;
   customerId?: string | null;
   registerId?: string;

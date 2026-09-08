@@ -2,7 +2,10 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useCartStore } from "@/lib/pos/cart-store";
-import { Grid, Tag, Image, Check, Search, Barcode, Sparkles } from "lucide-react";
+import { Grid, Tag, Check, Search, Barcode, Scale } from "lucide-react";
+import { parseScaleBarcode, resolveScaleItemPricing, resolveManualWeightPricing } from "@/lib/pos/scale-barcode";
+import { Modal } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
 
 type Product = {
   sku: string;
@@ -10,7 +13,12 @@ type Product = {
   category: string | null;
   brand: string | null;
   unitPrice: number;
+  purchasePrice?: number;
   qtyOnHand: number;
+  isScaleItem?: boolean;
+  isReturnable?: boolean;
+  trackSerial?: boolean;
+  trackBatch?: boolean;
 };
 
 export function ProductSearch({
@@ -23,8 +31,45 @@ export function ProductSearch({
   const addItem = useCartStore((s) => s.addItem);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // A barcode scanner is just a keyboard emulator — it only ever reaches
+  // whatever currently has focus, so this box has to actively hold onto
+  // it. Auto-focus on mount, and refocus after anything that could have
+  // moved focus away (an add completing, a scan not matching, a modal
+  // closing) — see refocusScanInput and its call sites below.
+  useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  function refocusScanInput() {
+    // Deferred a tick — called right after state changes that re-render
+    // (closing a modal, clearing the query), so the input still exists
+    // and isn't about to be re-blurred by that same render pass.
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  }
+
   // Track which SKUs were recently added
   const [recentlyAdded, setRecentlyAdded] = useState<Set<string>>(new Set());
+
+  // Feedback for a scan that didn't match anything, or matched something
+  // out of stock — previously this left the raw barcode digits sitting in
+  // the box with zero feedback, and the *next* scan would just get
+  // appended onto that leftover text instead of starting clean.
+  const [scanFeedback, setScanFeedback] = useState<string | null>(null);
+  function rejectScan(message: string) {
+    setScanFeedback(message);
+    setSearchQuery("");
+    refocusScanInput();
+    setTimeout(() => setScanFeedback(null), 2000);
+  }
+
+  // Manual weight entry — for a scale item added by clicking its catalog
+  // card instead of scanning a scale barcode (no scanner attached, or the
+  // label is damaged). Without this there was no way to correctly sell a
+  // weighed item except by scanning; a plain click added it with no
+  // weight, and calculateCart would have priced it as a full 1kg away
+  // from what the customer actually bought.
+  const [weighingProduct, setWeighingProduct] = useState<Product | null>(null);
+  const [manualWeightInput, setManualWeightInput] = useState("");
 
   // Active filter states
   const [activeFilterTab, setActiveFilterTab] = useState<"category" | "brand" | null>(null);
@@ -84,9 +129,20 @@ export function ProductSearch({
 
   // Add item with brief visual confirmation (green flash for 500ms)
   const handleAddItem = useCallback(
-    (p: Product) => {
+    (p: Product, scaleOpts?: { scaleWeight?: number; unitPrice?: number; displayRatePerKg?: number }) => {
       if (p.qtyOnHand <= 0) return;
-      addItem(p);
+      addItem({
+        sku: p.sku,
+        name: p.name,
+        unitPrice: scaleOpts?.unitPrice ?? p.unitPrice,
+        purchasePrice: p.purchasePrice,
+        scaleWeight: scaleOpts?.scaleWeight,
+        displayRatePerKg: scaleOpts?.displayRatePerKg,
+        isScaleItem: p.isScaleItem,
+        isReturnable: p.isReturnable,
+        trackSerial: p.trackSerial,
+        trackBatch: p.trackBatch,
+      });
       setRecentlyAdded((prev) => {
         const next = new Set(prev);
         next.add(p.sku);
@@ -99,29 +155,112 @@ export function ProductSearch({
           return next;
         });
       }, 500);
+      // A mouse click on a product card moves focus to that button, not
+      // back to the scan box — the next scan needs it back there.
+      refocusScanInput();
     },
     [addItem]
   );
 
-  // Barcode / Fast-scan Enter Handler
+  // Any add of a scale item that didn't come from a scanned scale barcode
+  // (typed SKU, single-result search match, or a plain catalog-card
+  // click) needs a weight from somewhere — prompt for it instead of
+  // silently adding with none, which used to price it as if it weighed
+  // exactly 1kg regardless of what was actually being sold.
+  const addOrPromptForWeight = useCallback(
+    (p: Product) => {
+      if (p.isScaleItem) {
+        setWeighingProduct(p);
+        setManualWeightInput("");
+        return;
+      }
+      handleAddItem(p);
+    },
+    [handleAddItem, setManualWeightInput, setWeighingProduct]
+  );
+
+  function confirmManualWeight() {
+    if (!weighingProduct) return;
+    const weight = Number(manualWeightInput);
+    if (!Number.isFinite(weight) || weight <= 0) return;
+    const pricing = resolveManualWeightPricing({ unitPrice: weighingProduct.unitPrice, weightKg: weight });
+    handleAddItem(weighingProduct, pricing);
+    setWeighingProduct(null);
+    setManualWeightInput("");
+  }
+
+  function cancelManualWeight() {
+    setWeighingProduct(null);
+    refocusScanInput();
+  }
+
+  // Barcode / Fast-scan Enter Handler (with Scale Barcode Parser)
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const q = searchQuery.trim().toLowerCase();
+      const q = searchQuery.trim();
       if (!q) return;
 
-      // Check exact SKU or barcode match first
+      // 1. Check for variable weight / scale barcode (EAN-13 / UPC-A format)
+      const parsedScale = parseScaleBarcode(q);
+      if (parsedScale.isScaleBarcode && parsedScale.itemCode) {
+        const scaleMatch = products.find(
+          (p) =>
+            p.sku.toLowerCase() === parsedScale.itemCode?.toLowerCase() ||
+            p.sku.toLowerCase().endsWith(parsedScale.itemCode?.toLowerCase() ?? "") ||
+            p.sku.toLowerCase().includes(parsedScale.itemCode?.toLowerCase() ?? "")
+        );
+        if (scaleMatch) {
+          if (scaleMatch.qtyOnHand <= 0) {
+            rejectScan(`${scaleMatch.name} is out of stock`);
+            return;
+          }
+          const pricing = resolveScaleItemPricing({
+            unitPrice: scaleMatch.unitPrice,
+            isWeightBased: scaleMatch.isScaleItem,
+            parsed: parsedScale,
+          });
+          handleAddItem(scaleMatch, {
+            unitPrice: pricing.unitPrice,
+            scaleWeight: pricing.scaleWeight,
+            displayRatePerKg: pricing.displayRatePerKg,
+          });
+          setSearchQuery("");
+          return;
+        }
+        // A recognized scale-barcode format with no matching product is
+        // still a definite failure — don't fall through to a fuzzy
+        // substring match against the raw scale barcode digits.
+        rejectScan("Scale barcode not recognized — no matching product");
+        return;
+      }
+
+      const qLower = q.toLowerCase();
+      // 2. Check exact SKU or name match
       const exactMatch = products.find(
-        (p) => p.sku.toLowerCase() === q || p.name.toLowerCase() === q
+        (p) => p.sku.toLowerCase() === qLower || p.name.toLowerCase() === qLower
       );
 
-      if (exactMatch && exactMatch.qtyOnHand > 0) {
-        handleAddItem(exactMatch);
+      if (exactMatch) {
+        if (exactMatch.qtyOnHand <= 0) {
+          rejectScan(`${exactMatch.name} is out of stock`);
+          return;
+        }
+        addOrPromptForWeight(exactMatch);
         setSearchQuery("");
-      } else if (filteredProducts.length === 1 && filteredProducts[0].qtyOnHand > 0) {
-        handleAddItem(filteredProducts[0]);
+      } else if (filteredProducts.length === 1) {
+        if (filteredProducts[0].qtyOnHand <= 0) {
+          rejectScan(`${filteredProducts[0].name} is out of stock`);
+          return;
+        }
+        addOrPromptForWeight(filteredProducts[0]);
         setSearchQuery("");
+      } else if (filteredProducts.length === 0) {
+        rejectScan(`No product matches "${q}"`);
       }
+      // filteredProducts.length > 1: ambiguous text search — leave the
+      // query in place so the cashier can keep narrowing it, or pick
+      // straight from the filtered grid below.
     }
   };
 
@@ -131,7 +270,7 @@ export function ProductSearch({
       {/* ── Search & Filter Controls ──────────────────────────────────────── */}
       <div className="flex flex-col gap-2">
         <div className="relative">
-          <Barcode className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-indigo-500" />
+          <Barcode className={`pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 ${scanFeedback ? "text-red-500" : "text-indigo-500"}`} />
           <input
             ref={searchInputRef}
             type="search"
@@ -140,8 +279,17 @@ export function ProductSearch({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={handleSearchKeyDown}
-            className="h-10 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-10 pr-4 text-sm font-medium outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-indigo-500 dark:text-zinc-100 placeholder:text-zinc-400"
+            className={`h-10 w-full rounded-lg border pl-10 pr-4 text-sm font-medium outline-none transition focus:ring-2 dark:bg-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 ${
+              scanFeedback
+                ? "border-red-400 bg-red-50 focus:border-red-500 focus:ring-red-500/20 dark:border-red-800"
+                : "border-zinc-200 bg-zinc-50 focus:border-indigo-500 focus:bg-white focus:ring-indigo-500/20 dark:border-zinc-700 dark:focus:border-indigo-500"
+            }`}
           />
+          {scanFeedback && (
+            <span className="absolute left-10 right-3 top-1/2 -translate-y-1/2 truncate text-xs font-bold text-red-600 dark:text-red-400 pointer-events-none bg-red-50 dark:bg-zinc-900">
+              {scanFeedback}
+            </span>
+          )}
         </div>
 
         {/* ── Filter Buttons ──────────────────────────────────────────────── */}
@@ -261,13 +409,12 @@ export function ProductSearch({
           {filteredProducts.map((p) => {
             const hasStock = p.qtyOnHand > 0;
             const added = recentlyAdded.has(p.sku);
-            const isWeighed = p.sku.toLowerCase().includes("kowpi") || (p.category && p.category.toLowerCase().includes("dairy")) || p.name.toLowerCase().includes("powder");
-            const unitSuffix = isWeighed ? "kg" : "pcs";
+            const unitSuffix = p.isScaleItem ? "kg" : "pcs";
 
             return (
               <button
                 key={p.sku}
-                onClick={() => handleAddItem(p)}
+                onClick={() => addOrPromptForWeight(p)}
                 disabled={!hasStock}
                 aria-label={`Add ${p.name} to cart`}
                 className={`group relative flex flex-col justify-between text-left rounded-xl border p-3 transition-all duration-150 ${
@@ -288,13 +435,30 @@ export function ProductSearch({
                       </span>
                     )}
                   </div>
-                  <p className="text-[10px] font-mono text-zinc-400">{p.sku}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-[10px] font-mono text-zinc-400">{p.sku}</p>
+                    {p.isScaleItem && (
+                      <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.2 text-[9px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                        <Scale className="h-2.5 w-2.5" /> Scale
+                      </span>
+                    )}
+                    {p.isReturnable === false && (
+                      <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.2 text-[9px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        Final Sale
+                      </span>
+                    )}
+                    {p.trackSerial && (
+                      <span className="rounded px-1 py-0.2 text-[9px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
+                        Serial
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Bottom: Price & Stock Tag */}
                 <div className="mt-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
                   <span className="text-xs font-extrabold font-mono tabular-nums text-indigo-700 dark:text-indigo-400">
-                    Rs {p.unitPrice.toFixed(2)}
+                    Rs {p.unitPrice.toFixed(2)}{p.isScaleItem ? "/kg" : ""}
                   </span>
                   <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded ${
                     hasStock
@@ -309,6 +473,53 @@ export function ProductSearch({
           })}
         </div>
       </div>
+
+      {/* Manual Weight Entry — scale item added by card click / typed SKU
+          instead of a scanned scale barcode */}
+      <Modal open={!!weighingProduct} onClose={cancelManualWeight} title="Enter Weight">
+        {weighingProduct && (
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{weighingProduct.name}</p>
+              <p className="text-xs text-zinc-500">Rs {weighingProduct.unitPrice.toFixed(2)} / kg</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">Weight (kg)</label>
+              <input
+                type="number"
+                step="0.001"
+                min="0"
+                autoFocus
+                value={manualWeightInput}
+                onChange={(e) => setManualWeightInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    confirmManualWeight();
+                  }
+                }}
+                placeholder="0.000"
+                className="h-11 w-full rounded-lg border border-zinc-200 bg-white px-3 text-lg font-bold font-mono outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800"
+              />
+              {Number(manualWeightInput) > 0 && (
+                <p className="text-xs font-bold text-emerald-600">
+                  = Rs {(Number(manualWeightInput) * weighingProduct.unitPrice).toFixed(2)}
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={cancelManualWeight}>Cancel</Button>
+              <Button
+                onClick={confirmManualWeight}
+                disabled={!(Number(manualWeightInput) > 0)}
+                className="bg-indigo-650 hover:bg-indigo-750 text-white"
+              >
+                Add to Cart
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

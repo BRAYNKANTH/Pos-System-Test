@@ -27,8 +27,17 @@ function LoginForm() {
         setError(body.error?.message ?? "Login failed");
         return;
       }
+      // `from` is attacker-controllable — anyone can send a victim a link
+      // like /login?from=https://evil.example/phish and, after they log
+      // in with real credentials, this would send them straight there. A
+      // safe redirect target must be an internal path: starts with a
+      // single "/" (rejecting "//evil.com" and "/\evil.com", both of
+      // which browsers can treat as protocol-relative), and never "/login"
+      // itself (which would just bounce back here).
       const from = searchParams.get("from");
-      router.push(from && from !== "/login" ? from : "/");
+      const isSafeInternalPath = (p: string | null): p is string =>
+        !!p && p.startsWith("/") && !p.startsWith("//") && !p.startsWith("/\\") && p !== "/login";
+      router.push(isSafeInternalPath(from) ? from : "/");
       router.refresh();
     } catch {
       setError("Something went wrong. Try again.");

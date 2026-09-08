@@ -48,6 +48,10 @@ interface InventoryItem {
   purchasePrice: number;
   qtyOnHand: number;
   lowStockThreshold: number;
+  isScaleItem?: boolean;
+  isReturnable?: boolean;
+  trackSerial?: boolean;
+  trackBatch?: boolean;
 }
 
 interface StockAdjustmentLog {
@@ -145,6 +149,12 @@ export default function InventoryListClient({
   const [receivingItem, setReceivingItem] = useState<InventoryItem | null>(null);
   const [receiveQty, setReceiveQty] = useState("");
   const [receivingStock, setReceivingStock] = useState(false);
+  // Batch/lot tracking — required when the product is trackBatch
+  const [receiveBatchNumber, setReceiveBatchNumber] = useState("");
+  const [receiveExpiryDate, setReceiveExpiryDate] = useState("");
+  const [receiveCostPrice, setReceiveCostPrice] = useState("");
+  // Serial numbers — one per unit, required when the product is trackSerial
+  const [receiveSerials, setReceiveSerials] = useState<string[]>([]);
 
   // Stock history log modal
   const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
@@ -369,13 +379,29 @@ export default function InventoryListClient({
       alert("Please enter a quantity greater than 0.");
       return;
     }
+    if (receivingItem.trackBatch && !receiveBatchNumber.trim()) {
+      alert(`${receivingItem.name} is batch/lot-tracked — enter a batch number.`);
+      return;
+    }
+    const trimmedSerials = receiveSerials.slice(0, qty).map((s) => s.trim());
+    if (receivingItem.trackSerial && (trimmedSerials.length !== qty || trimmedSerials.some((s) => !s))) {
+      alert(`${receivingItem.name} is serial-tracked — enter all ${qty} serial number(s).`);
+      return;
+    }
 
     setReceivingStock(true);
     try {
       const res = await fetch("/api/inventory/goods-receipt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sku: receivingItem.sku, qty }),
+        body: JSON.stringify({
+          sku: receivingItem.sku,
+          qty,
+          batchNumber: receivingItem.trackBatch ? receiveBatchNumber.trim() : undefined,
+          expiryDate: receiveExpiryDate || undefined,
+          costPrice: receiveCostPrice ? Number(receiveCostPrice) : undefined,
+          serialNumbers: receivingItem.trackSerial ? trimmedSerials : undefined,
+        }),
       });
 
       const data = await res.json();
@@ -391,6 +417,10 @@ export default function InventoryListClient({
       triggerAlert("success", `Received ${qty} units of "${receivingItem.name}".`);
       setReceivingItem(null);
       setReceiveQty("");
+      setReceiveBatchNumber("");
+      setReceiveExpiryDate("");
+      setReceiveCostPrice("");
+      setReceiveSerials([]);
     } catch (err) {
       alert(errorMessage(err, "An error occurred."));
     } finally {
@@ -734,6 +764,10 @@ export default function InventoryListClient({
                                   onClick={() => {
                                     setReceivingItem(item);
                                     setReceiveQty("");
+                                    setReceiveBatchNumber("");
+                                    setReceiveExpiryDate("");
+                                    setReceiveCostPrice("");
+                                    setReceiveSerials([]);
                                     setActiveActionsSku(null);
                                   }}
                                   className="px-4 py-1.5 text-left hover:bg-zinc-50 flex items-center gap-2"
@@ -966,7 +1000,7 @@ export default function InventoryListClient({
       {/* ────────────────────────────────────────────────────────────────── */}
       {receivingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-5 space-y-4">
+          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-5 space-y-4 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="font-bold text-sm text-zinc-800">Receive Stock</h3>
               <button onClick={() => setReceivingItem(null)} className="text-zinc-400 hover:text-zinc-600">
@@ -997,6 +1031,76 @@ export default function InventoryListClient({
                   </p>
                 )}
               </div>
+
+              {/* Batch / Lot — required when this product is batch-tracked.
+                  Without this there was no way to ever add to the batch
+                  ledger at all, so it silently drifted from the real
+                  stock count from day one. */}
+              {receivingItem.trackBatch && (
+                <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+                  <p className="text-[10px] font-extrabold uppercase text-blue-700">Batch / Lot Tracked</p>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-650 mb-1">Batch / Lot No: *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. LOT-2026A"
+                      value={receiveBatchNumber}
+                      onChange={(e) => setReceiveBatchNumber(e.target.value)}
+                      className="h-8 w-full rounded border border-zinc-300 px-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-650 mb-1">Expiry Date:</label>
+                      <input
+                        type="date"
+                        value={receiveExpiryDate}
+                        onChange={(e) => setReceiveExpiryDate(e.target.value)}
+                        className="h-8 w-full rounded border border-zinc-300 px-2 text-xs outline-none focus:border-indigo-500 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-650 mb-1">Cost Price (Rs):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={receiveCostPrice}
+                        onChange={(e) => setReceiveCostPrice(e.target.value)}
+                        className="h-8 w-full rounded border border-zinc-300 px-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Serial numbers — required, one per unit, when this
+                  product is serial-tracked. This is the only place a
+                  serial number can ever be registered; checkout now
+                  rejects any serial that wasn't registered here first. */}
+              {receivingItem.trackSerial && (
+                <div className="space-y-2 rounded-lg border border-purple-200 bg-purple-50/50 p-3">
+                  <p className="text-[10px] font-extrabold uppercase text-purple-700">Serial Tracked — one per unit</p>
+                  {Array.from({ length: Math.max(0, parseInt(receiveQty) || 0) }).map((_, i) => (
+                    <input
+                      key={i}
+                      type="text"
+                      required
+                      placeholder={`Serial / IMEI #${i + 1}`}
+                      value={receiveSerials[i] ?? ""}
+                      onChange={(e) => {
+                        const next = [...receiveSerials];
+                        next[i] = e.target.value;
+                        setReceiveSerials(next);
+                      }}
+                      className="h-8 w-full rounded border border-zinc-300 px-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white"
+                    />
+                  ))}
+                  {!receiveQty && (
+                    <p className="text-[11px] text-zinc-450">Enter a quantity above to list serial fields.</p>
+                  )}
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 border-t pt-3">
                 <button

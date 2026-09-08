@@ -35,7 +35,7 @@ type ReceiptData = {
   billId: string | null;
   billStatus: string | null;
   tenders: { method: string; amount: number }[];
-  items: { sku: string; qty: number; unitPrice: number; discount: number; taxAmount: number }[];
+  items: { sku: string; qty: number; unitPrice: number; discount: number; taxAmount: number; scaleWeight: number | null; batchNumber: string | null }[];
 };
 
 interface PaymentModalProps {
@@ -162,11 +162,19 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
     setSubmitting(true);
 
     const checkoutPayload = {
+      // scaleWeight/batchNumber/serialNumbers/allowBelowCost were captured
+      // in the cart but never actually sent to checkout — every weighed,
+      // batch-tracked, or serialized sale was silently stripped of that
+      // data right here, regardless of whether it was priced or validated
+      // correctly anywhere else in the pipeline.
       items: lines.map((l) => ({
         sku: l.sku,
         qty: l.qty,
         priceOverride: l.priceOverride ?? undefined,
         lineDiscount: l.lineDiscount ?? undefined,
+        scaleWeight: l.scaleWeight,
+        batchNumber: l.batchNumber,
+        serialNumbers: l.serialNumbers,
       })),
       // When the applied discount is a loyalty redemption, don't also send
       // it as a generic `discount` — the server derives the same Rs value
@@ -231,6 +239,7 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
           items: checkoutPayload.items,
           tenders: checkoutPayload.tenders,
           discount: checkoutPayload.discount,
+          redeemLoyaltyPoints: checkoutPayload.redeemLoyaltyPoints,
           shipping: checkoutPayload.shipping,
           customerId: checkoutPayload.customerId,
           registerId: "register-1",
@@ -383,11 +392,19 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                 <div className="space-y-1.5 pb-2">
                   {receiptData.items.map((item, idx) => {
                     const lineSub = item.unitPrice * item.qty - item.discount;
+                    const ratePerKg = item.scaleWeight ? item.unitPrice / item.scaleWeight : null;
                     return (
                       <div key={idx} className="flex justify-between text-zinc-900 font-semibold text-[10px] leading-tight">
-                        <span className="flex-1 truncate pr-1">{item.sku}</span>
-                        <span className="w-8 text-center font-sans font-normal">{item.qty}</span>
-                        <span className="w-14 text-right font-sans font-normal">{item.unitPrice.toFixed(2)}</span>
+                        <span className="flex-1 truncate pr-1">
+                          {item.sku}
+                          {item.batchNumber && <span className="text-zinc-400"> ({item.batchNumber})</span>}
+                        </span>
+                        <span className="w-8 text-center font-sans font-normal">
+                          {item.scaleWeight ? `${item.scaleWeight.toFixed(3)}kg` : item.qty}
+                        </span>
+                        <span className="w-14 text-right font-sans font-normal">
+                          {ratePerKg !== null ? `${ratePerKg.toFixed(2)}/kg` : item.unitPrice.toFixed(2)}
+                        </span>
                         <span className="w-12 text-right font-sans font-normal text-red-600">
                           {item.discount > 0 ? `-${item.discount.toFixed(0)}` : "0.00"}
                         </span>

@@ -69,14 +69,42 @@ export async function PATCH(
   const purchasePrice = body?.purchasePrice !== undefined ? Number(body.purchasePrice) : undefined;
   const unitPrice = body?.unitPrice !== undefined ? Number(body.unitPrice) : undefined;
   const name = typeof body?.name === "string" ? body.name : undefined;
+  const isScaleItem = typeof body?.isScaleItem === "boolean" ? body.isScaleItem : undefined;
+  const isReturnable = typeof body?.isReturnable === "boolean" ? body.isReturnable : undefined;
+  const trackSerial = typeof body?.trackSerial === "boolean" ? body.trackSerial : undefined;
+  const trackBatch = typeof body?.trackBatch === "boolean" ? body.trackBatch : undefined;
 
   try {
+    // Turning batch/serial tracking ON for a product that already has
+    // untracked stock on hand would leave that existing stock with no
+    // batch/serial records at all — the very next sale of it would either
+    // fail outright (batches.ts's deductBatchStock has nothing to draw
+    // from) or, for serials, have no registered numbers to assign.
+    // Require the product to be emptied out first, then bring stock back
+    // in through Receive Stock (which does capture batch/serial data).
+    if (trackSerial === true || trackBatch === true) {
+      const current = await prisma.inventoryItem.findUnique({ where: { sku }, select: { qtyOnHand: true, trackSerial: true, trackBatch: true } });
+      const turningOnSerial = trackSerial === true && !current?.trackSerial;
+      const turningOnBatch = trackBatch === true && !current?.trackBatch;
+      if ((turningOnSerial || turningOnBatch) && current && current.qtyOnHand > 0) {
+        return apiError(
+          "STOCK_NOT_EMPTY",
+          `${sku} has ${current.qtyOnHand} unit(s) on hand with no batch/serial records — reduce stock to 0 first (e.g. a stock-take adjustment), then enable tracking and receive stock again.`,
+          { status: 409 },
+        );
+      }
+    }
+
     const updated = await prisma.inventoryItem.update({
       where: { sku },
       data: {
         ...(purchasePrice !== undefined && { purchasePrice }),
         ...(unitPrice !== undefined && { unitPrice }),
         ...(name !== undefined && { name }),
+        ...(isScaleItem !== undefined && { isScaleItem }),
+        ...(isReturnable !== undefined && { isReturnable }),
+        ...(trackSerial !== undefined && { trackSerial }),
+        ...(trackBatch !== undefined && { trackBatch }),
       },
     });
 

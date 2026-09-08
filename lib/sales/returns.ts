@@ -14,6 +14,12 @@ export class InvalidReturnQtyError extends Error {
   }
 }
 
+export class NonReturnableItemError extends Error {
+  constructor(public sku: string) {
+    super(`Item ${sku} is marked as Final Sale / Non-Returnable`);
+  }
+}
+
 export class UnknownExchangeSkuError extends Error {
   constructor(public sku: string) {
     super(`Unknown SKU: ${sku}`);
@@ -33,6 +39,7 @@ export async function createSalesReturn(params: {
   reason: string;
   refundMethod: string;
   createdById: string;
+  allowNonReturnableOverride?: boolean;
   /** Exchange — the replacement item(s) going out in the same operation
    * as the return coming in. Omit/empty for a plain refund-only return. */
   exchangeItems?: { sku: string; qty: number }[];
@@ -59,6 +66,12 @@ export async function createSalesReturn(params: {
     for (const reqItem of params.items) {
       const line = transaction.items.find((i) => i.sku === reqItem.sku);
       if (!line) throw new InvalidReturnQtyError(reqItem.sku);
+
+      // Check if product is marked non-returnable
+      const invItem = await tx.inventoryItem.findUnique({ where: { sku: reqItem.sku } });
+      if (invItem && !invItem.isReturnable && !params.allowNonReturnableOverride) {
+        throw new NonReturnableItemError(reqItem.sku);
+      }
 
       const alreadyReturned = priorReturnedBySku.get(reqItem.sku) ?? 0;
       const remainingReturnable = line.qty - alreadyReturned;

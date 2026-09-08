@@ -22,9 +22,26 @@ export async function POST(req: NextRequest) {
   const purchasePrice = Number(body?.purchasePrice) || 0;
   const qtyOnHand = Number(body?.qtyOnHand) || 0;
   const lowStockThreshold = Number(body?.lowStockThreshold) || 0;
+  const isScaleItem = Boolean(body?.isScaleItem);
+  const isReturnable = body?.isReturnable === false ? false : true;
+  const trackSerial = Boolean(body?.trackSerial);
+  const trackBatch = Boolean(body?.trackBatch);
 
   if (!name) {
     return apiError("INVALID_INPUT", "Product name is required", { status: 400 });
+  }
+
+  // Batch and serial numbers can only be registered through Receive Stock
+  // (see /api/inventory/goods-receipt), which is the one place that
+  // captures them — rather than duplicate that capture UI here too,
+  // require these products to be created with zero opening stock and
+  // brought in properly afterward.
+  if ((trackSerial || trackBatch) && qtyOnHand > 0) {
+    return apiError(
+      "USE_RECEIVE_STOCK",
+      "Batch/lot or serial-tracked products must be created with 0 opening stock — save the product first, then use Receive Stock to bring in the first units with their batch/serial numbers.",
+      { status: 400 },
+    );
   }
 
   let sku = typeof body?.sku === "string" ? body.sku.trim() : "";
@@ -64,6 +81,10 @@ export async function POST(req: NextRequest) {
           purchasePrice,
           qtyOnHand,
           lowStockThreshold,
+          isScaleItem,
+          isReturnable,
+          trackSerial,
+          trackBatch,
         },
       });
 

@@ -7,7 +7,12 @@ interface ManagerPinModalProps {
   open: boolean;
   title?: string;
   description?: string;
-  onSuccess: (approverInfo: { approverName: string; role: string }) => void;
+  /** `pin` is the verified PIN value itself — pass it through to whatever
+   * privileged action this authorized so that action's own endpoint can
+   * re-verify it at the point of use, rather than trusting a client claim
+   * of "a manager already approved this in an earlier request" (which
+   * could be fabricated without ever actually calling this modal). */
+  onSuccess: (approverInfo: { approverName: string; role: string; pin: string }) => void;
   onClose: () => void;
 }
 
@@ -96,6 +101,7 @@ export function ManagerPinModal({
         onSuccess({
           approverName: data.data.approverName,
           role: data.data.role,
+          pin: pinToTest,
         });
       }, 400);
     } catch {
@@ -224,8 +230,7 @@ export function ManagerPinModal({
             </button>
           </div>
 
-          <div className="pt-2 flex justify-between text-[11px] text-zinc-400">
-            <span>Default PIN: <code className="font-bold text-amber-600">1234</code></span>
+          <div className="pt-2 flex justify-end text-[11px] text-zinc-400">
             <span>Esc to cancel</span>
           </div>
         </div>

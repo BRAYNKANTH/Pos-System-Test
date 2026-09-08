@@ -15,7 +15,7 @@ async function main() {
       { category: "Repairs", details: "Fixing air conditioning unit in location A", status: "Completed", amount: 8000 },
     ],
   });
-
+ 
   // 2. Seed Suppliers
   const suppliers = await Promise.all([
     prisma.supplier.upsert({

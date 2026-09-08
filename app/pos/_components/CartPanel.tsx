@@ -65,8 +65,9 @@ export function CartPanel({
   const [productQuery, setProductQuery] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
 
-  // Accordion state for line items (expanded SKU)
-  const [expandedSku, setExpandedSku] = useState<string | null>(null);
+  // Accordion state for line items (expanded line id — NOT sku, since two
+  // lines can share a sku for scale/serial items)
+  const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
 
   // Undo delete tracking
   const [lastDeletedItem, setLastDeletedItem] = useState<{ item: CartLine; index: number } | null>(null);
@@ -80,6 +81,15 @@ export function CartPanel({
 
   // Customer quick-create modal
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  // Closing this modal leaves focus nowhere in particular — the next
+  // barcode scan (keyboard-emulated) needs the catalog scan box focused
+  // to go anywhere at all.
+  useEffect(() => {
+    if (!isCustomerModalOpen) {
+      const t = setTimeout(() => document.getElementById("pos-catalog-search-input")?.focus(), 0);
+      return () => clearTimeout(t);
+    }
+  }, [isCustomerModalOpen]);
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
@@ -165,15 +175,18 @@ export function CartPanel({
   // Remove line with undo support
   function handleRemoveItemWithUndo(line: CartLine, index: number) {
     setLastDeletedItem({ item: line, index });
-    removeItem(line.sku);
+    removeItem(line.id);
     setTimeout(() => {
-      setLastDeletedItem((prev) => (prev?.item.sku === line.sku ? null : prev));
+      setLastDeletedItem((prev) => (prev?.item.id === line.id ? null : prev));
     }, 6000);
   }
 
   function handleUndoDelete() {
     if (!lastDeletedItem) return;
-    addItem(lastDeletedItem.item);
+    // Pass the original qty through explicitly — addItem defaults new
+    // lines to qty 1, which would otherwise silently shrink a qty>1 line
+    // back down to 1 on undo.
+    addItem(lastDeletedItem.item, lastDeletedItem.item.qty);
     setLastDeletedItem(null);
   }
 
@@ -369,27 +382,44 @@ export function CartPanel({
               </tr>
             ) : (
               lines.map((line, idx) => {
-                const lineCalc = calc.lines.find((l) => l.sku === line.sku);
+                // Positional, not sku-matched — calc.lines is produced by
+                // mapping over `lines` 1:1 (same order/count), and two
+                // lines can share a sku (scale/serial items), so matching
+                // by sku would always resolve to whichever of them came
+                // first.
+                const lineCalc = calc.lines[idx];
                 const sub = lineCalc ? lineCalc.lineSubtotal : line.qty * line.unitPrice;
-                const isExpanded = expandedSku === line.sku;
+                const isExpanded = expandedLineId === line.id;
+                const isLockedQty = line.isScaleItem || line.trackSerial;
 
                 return (
-                  <React.Fragment key={line.sku}>
+                  <React.Fragment key={line.id}>
                     <tr className={`hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40 transition ${isExpanded ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""}`}>
                       {/* Product Name & SKU */}
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => setExpandedSku(isExpanded ? null : line.sku)}
+                            onClick={() => setExpandedLineId(isExpanded ? null : line.id)}
                             className="text-zinc-400 hover:text-indigo-600 transition"
-                            title="Edit price override, discount, or serial note"
+                            title="Edit price override, discount, batch, or serial"
                           >
                             {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-indigo-600" /> : <ChevronDown className="h-3.5 w-3.5" />}
                           </button>
                           <div className="truncate">
-                            <p className="font-bold text-zinc-900 dark:text-zinc-100 truncate">{line.name}</p>
-                            <p className="text-[10px] font-mono text-zinc-400 tabular-nums">
-                              {line.priceOverride ? (
+                            <p className="font-bold text-zinc-900 dark:text-zinc-100 truncate flex items-center gap-1.5">
+                              {line.name}
+                              {line.isReturnable === false && (
+                                <span className="rounded bg-amber-100 text-amber-800 text-[8.5px] px-1 py-0.2 font-bold dark:bg-amber-950/60 dark:text-amber-300">
+                                  Final Sale
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-[10px] font-mono text-zinc-400 tabular-nums flex items-center gap-1 flex-wrap">
+                              {line.scaleWeight ? (
+                                <span className="text-blue-600 dark:text-blue-400 font-bold">
+                                  {line.scaleWeight.toFixed(3)} kg @ Rs {(line.displayRatePerKg ?? line.unitPrice).toFixed(2)}/kg
+                                </span>
+                              ) : line.priceOverride ? (
                                 <>
                                   <span className="line-through mr-1">Rs {line.unitPrice.toFixed(2)}</span>
                                   <span className="text-amber-600 font-bold">Rs {line.priceOverride.newPrice.toFixed(2)}</span>
@@ -402,35 +432,53 @@ export function CartPanel({
                                   (-{line.lineDiscount.value}{line.lineDiscount.type === "percent" ? "%" : "Rs"})
                                 </span>
                               )}
+                              {lineCalc?.marginClamped && (
+                                <span className="ml-1 text-amber-600 font-bold" title="Discount capped at cost price">
+                                  (Cost Floor Protected)
+                                </span>
+                              )}
                             </p>
                           </div>
                         </div>
                       </td>
 
-                      {/* Quantity Stepper */}
+                      {/* Quantity Stepper — locked at 1 for scale/serial
+                          lines: each unit is its own line (own weight,
+                          own serial), so "quantity" here is never
+                          meaningful to bump; scan/add again for another
+                          unit instead. */}
                       <td className="px-1 py-2 text-center">
-                        <div className="inline-flex items-center border border-zinc-200 rounded-md bg-white dark:border-zinc-700 dark:bg-zinc-900 shadow-2xs">
-                          <button
-                            onClick={() => setQty(line.sku, Math.max(0, line.qty - 1))}
-                            className="h-6 w-5 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-l transition"
+                        {isLockedQty ? (
+                          <span
+                            className="text-[10px] font-bold text-zinc-400 uppercase"
+                            title={line.isScaleItem ? "Weighed item — scan/add again for another" : "Serialized item — add again for another unit"}
                           >
-                            <Minus className="h-2.5 w-2.5" />
-                          </button>
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={line.qty}
-                            onChange={(e) => setQty(line.sku, Math.max(0, parseFloat(e.target.value) || 0))}
-                            className="h-6 w-8 text-center text-xs font-bold font-mono outline-none focus:ring-1 focus:ring-indigo-500 rounded dark:bg-zinc-900 text-zinc-900 dark:text-white tabular-nums"
-                          />
-                          <button
-                            onClick={() => setQty(line.sku, line.qty + 1)}
-                            className="h-6 w-5 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-r transition"
-                          >
-                            <Plus className="h-2.5 w-2.5" />
-                          </button>
-                        </div>
+                            1 {line.isScaleItem ? "wt" : "unit"}
+                          </span>
+                        ) : (
+                          <div className="inline-flex items-center border border-zinc-200 rounded-md bg-white dark:border-zinc-700 dark:bg-zinc-900 shadow-2xs">
+                            <button
+                              onClick={() => setQty(line.id, Math.max(0, line.qty - 1))}
+                              className="h-6 w-5 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-l transition"
+                            >
+                              <Minus className="h-2.5 w-2.5" />
+                            </button>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={line.qty}
+                              onChange={(e) => setQty(line.id, Math.max(0, parseFloat(e.target.value) || 0))}
+                              className="h-6 w-8 text-center text-xs font-bold font-mono outline-none focus:ring-1 focus:ring-indigo-500 rounded dark:bg-zinc-900 text-zinc-900 dark:text-white tabular-nums"
+                            />
+                            <button
+                              onClick={() => setQty(line.id, line.qty + 1)}
+                              className="h-6 w-5 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-r transition"
+                            >
+                              <Plus className="h-2.5 w-2.5" />
+                            </button>
+                          </div>
+                        )}
                       </td>
 
                       {/* Subtotal */}
@@ -450,15 +498,15 @@ export function CartPanel({
                       </td>
                     </tr>
 
-                    {/* ── Expandable Row for Line Discounts, Price Overrides, Notes ── */}
+                    {/* ── Expandable Row for Line Discounts, Price Overrides, Batch, Serials ── */}
                     {isExpanded && (
                       <tr className="bg-indigo-50/40 dark:bg-indigo-950/20 border-b border-indigo-100 dark:border-indigo-900/40">
                         <td colSpan={4} className="p-3">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11px]">
-                            
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2.5 text-[11px]">
+
                             {/* Price Override */}
                             <div>
-                              <label className="font-bold text-zinc-600 dark:text-zinc-400 block mb-1">Unit Price Override (Rs):</label>
+                              <label className="font-bold text-zinc-600 dark:text-zinc-400 block mb-1">Price Override (Rs):</label>
                               <input
                                 type="number"
                                 step="0.01"
@@ -466,9 +514,9 @@ export function CartPanel({
                                 onBlur={(e) => {
                                   const val = parseFloat(e.target.value);
                                   if (!isNaN(val) && val !== line.unitPrice) {
-                                    setLinePriceOverride(line.sku, { newPrice: val, reason: "Cashier adjustment" });
+                                    setLinePriceOverride(line.id, { newPrice: val, reason: "Cashier adjustment" });
                                   } else if (val === line.unitPrice) {
-                                    setLinePriceOverride(line.sku, null);
+                                    setLinePriceOverride(line.id, null);
                                   }
                                 }}
                                 className="h-7 w-full rounded border border-zinc-300 bg-white px-2 font-mono text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
@@ -488,9 +536,9 @@ export function CartPanel({
                                   onBlur={(e) => {
                                     const val = parseFloat(e.target.value);
                                     if (val > 0) {
-                                      setLineDiscount(line.sku, { type: line.lineDiscount?.type || "percent", value: val });
+                                      setLineDiscount(line.id, { type: line.lineDiscount?.type || "percent", value: val });
                                     } else {
-                                      setLineDiscount(line.sku, null);
+                                      setLineDiscount(line.id, null);
                                     }
                                   }}
                                   className="h-7 flex-1 rounded border border-zinc-300 bg-white px-2 font-mono text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
@@ -500,7 +548,7 @@ export function CartPanel({
                                   onChange={(e) => {
                                     const type = e.target.value as "percent" | "amount";
                                     if (line.lineDiscount) {
-                                      setLineDiscount(line.sku, { ...line.lineDiscount, type });
+                                      setLineDiscount(line.id, { ...line.lineDiscount, type });
                                     }
                                   }}
                                   className="h-7 rounded border border-zinc-300 bg-white px-1.5 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
@@ -511,14 +559,36 @@ export function CartPanel({
                               </div>
                             </div>
 
-                            {/* Serial / Notes */}
+                            {/* Batch / Lot Number — only meaningful for
+                                batch-tracked products; shown for everyone
+                                so a manager can still tag a batch on an
+                                ad-hoc basis, but only required server-side
+                                when the product itself is trackBatch. */}
                             <div>
-                              <label className="font-bold text-zinc-600 dark:text-zinc-400 block mb-1">IMEI / Serial / Note:</label>
+                              <label className="font-bold text-zinc-600 dark:text-zinc-400 block mb-1">Batch / Lot No:</label>
                               <input
                                 type="text"
-                                placeholder="Serial / custom note..."
-                                defaultValue={line.description ?? ""}
-                                onBlur={(e) => setLineDescription(line.sku, e.target.value.trim() || null)}
+                                placeholder="Batch (e.g. LOT-2026A)"
+                                defaultValue={line.batchNumber ?? ""}
+                                onBlur={(e) => useCartStore.getState().setLineBatch(line.id, e.target.value.trim())}
+                                className="h-7 w-full rounded border border-zinc-300 bg-white px-2 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                              />
+                            </div>
+
+                            {/* Serial Number — one per line now (scale and
+                                serial-tracked lines never merge, so qty
+                                is always 1 here); sell a second serialized
+                                unit by adding the product again. */}
+                            <div>
+                              <label className="font-bold text-zinc-600 dark:text-zinc-400 block mb-1">Serial / IMEI:</label>
+                              <input
+                                type="text"
+                                placeholder="Serial / IMEI number"
+                                defaultValue={line.serialNumbers?.[0] ?? ""}
+                                onBlur={(e) => {
+                                  const val = e.target.value.trim();
+                                  useCartStore.getState().setLineSerials(line.id, val ? [val] : []);
+                                }}
                                 className="h-7 w-full rounded border border-zinc-300 bg-white px-2 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
                               />
                             </div>
