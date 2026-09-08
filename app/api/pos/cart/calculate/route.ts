@@ -36,11 +36,11 @@ export async function POST(req: NextRequest) {
     }),
   );
 
-  const lines: CartLineInput[] = requestLines.map((l) => ({
+  const lines: CartLineInput[] = requestLines.map((l, i) => ({
     sku: l.sku,
     qty: l.qty,
     unitPrice: Number(bySku.get(l.sku)!.unitPrice),
-    discount: autoDiscounts.get(l.sku)?.amountForLine ?? 0,
+    discount: autoDiscounts[i]?.amountForLine ?? 0,
   }));
 
   const taxRule = await prisma.taxRule.findFirst({ where: { isDefault: true } });

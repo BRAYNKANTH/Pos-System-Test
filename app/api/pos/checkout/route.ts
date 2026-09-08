@@ -182,7 +182,11 @@ export async function POST(req: NextRequest) {
 
   // Auto-apply any active scheduled Discount (Discounts settings page)
   // matching each line's sku/brand/category before the optional manual
-  // cashier-entered discount stacks on top (see applyDiscount).
+  // cashier-entered discount stacks on top (see applyDiscount). Returned
+  // positionally (index i ↔ requestLines[i]), not keyed by sku — two
+  // lines can share a sku (scale/serial items never merge), and a sku
+  // keyed lookup would silently apply one line's resolved discount amount
+  // to every line sharing that sku (see resolveDiscountsForLines' docs).
   const autoDiscounts = await resolveDiscountsForLines(
     requestLines.map((l) => {
       const item = bySku.get(l.sku)!;
@@ -191,20 +195,19 @@ export async function POST(req: NextRequest) {
   );
 
   // Price overrides (damaged item, manager discretion — gated by
-  // PRICE_OVERRIDE above) replace the catalog price for that line only;
-  // the catalog price is kept below for the audit trail and
+  // PRICE_OVERRIDE above) replace the catalog price for that line only —
+  // read directly off `requestLines[i]` by position, not a sku-keyed map,
+  // for the same reason as autoDiscounts above: two lines can share a
+  // sku, and an override meant for one of them must not leak onto the
+  // other. The catalog price is kept below for the audit trail and
   // TransactionItem.originalUnitPrice.
-  const overridesBySku = new Map(
-    requestLines.filter((l) => l.priceOverride).map((l) => [l.sku, l.priceOverride!]),
-  );
-
-  let lines: CartLineInput[] = requestLines.map((l) => {
+  let lines: CartLineInput[] = requestLines.map((l, i) => {
     const inv = bySku.get(l.sku)!;
     return {
       sku: l.sku,
       qty: l.qty,
-      unitPrice: overridesBySku.has(l.sku) ? overridesBySku.get(l.sku)!.newPrice : Number(inv.unitPrice),
-      discount: autoDiscounts.get(l.sku)?.amountForLine ?? 0,
+      unitPrice: l.priceOverride ? l.priceOverride.newPrice : Number(inv.unitPrice),
+      discount: autoDiscounts[i]?.amountForLine ?? 0,
       purchasePrice: Number(inv.purchasePrice) || 0,
       scaleWeight: l.scaleWeight,
       allowBelowCost: l.allowBelowCost,
@@ -339,8 +342,8 @@ export async function POST(req: NextRequest) {
           items: {
             createMany: {
               data: calculation.lines.map((line, i) => {
-                const override = overridesBySku.get(line.sku);
                 const reqLine = requestLines[i];
+                const override = reqLine?.priceOverride;
                 return {
                   sku: line.sku,
                   qty: line.qty,
@@ -426,15 +429,21 @@ export async function POST(req: NextRequest) {
     // Price overrides are audit-logged against the transaction (not the
     // individual TransactionItem — createMany above doesn't return the
     // inserted rows' ids) so there's always a record of who charged what
-    // and why whenever a line didn't sell at catalog price.
-    for (const [sku, override] of overridesBySku) {
+    // and why whenever a line didn't sell at catalog price. One entry per
+    // overridden *line*, not deduplicated by sku — two lines can share a
+    // sku with only one of them actually overridden (or two different
+    // override reasons), and a sku-keyed loop here used to log only one
+    // of them, silently losing the audit trail for the other.
+    for (const reqLine of requestLines) {
+      if (!reqLine.priceOverride) continue;
+      const sku = reqLine.sku;
       writeAuditLog({
         entityType: "transaction_price_override",
         entityId: result.transaction.id,
         oldValue: { sku, catalogPrice: Number(bySku.get(sku)!.unitPrice) },
-        newValue: { sku, overridePrice: override.newPrice },
+        newValue: { sku, overridePrice: reqLine.priceOverride.newPrice },
         actorId: user.id,
-        reason: override.reason,
+        reason: reqLine.priceOverride.reason,
       }).catch((err) => console.error("writeAuditLog failed for price override", result.transaction.id, err));
     }
 

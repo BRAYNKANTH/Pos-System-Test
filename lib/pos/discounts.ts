@@ -50,20 +50,30 @@ export async function resolveLineDiscount(params: {
 }
 
 /** Batch version — one query for the active discount list, then matches
- * every line against it in memory instead of one query per line. */
+ * every line against it in memory instead of one query per line.
+ *
+ * Returns an array positionally aligned with the input `lines` (same
+ * length, same order — index i of the result is the resolved discount
+ * for `lines[i]`, or null if none matched). This used to return a
+ * `Map<sku, ResolvedDiscount>`, which silently collapsed to one entry per
+ * sku — harmless while a cart could only ever have one line per sku, but
+ * two lines can now share a sku (scale-weighed items, serialized units
+ * never merge; see cart-store.ts's addItem), and `result.set(line.sku, …)`
+ * would overwrite an earlier line's entry with a later line's, so both
+ * ended up using whichever line's discount was computed last regardless
+ * of their own qty/weight. */
 export async function resolveDiscountsForLines(
   lines: { sku: string; category: string | null; brand: string | null; qty: number; unitPrice: number }[],
-): Promise<Map<string, ResolvedDiscount>> {
+): Promise<(ResolvedDiscount | null)[]> {
   const now = new Date();
   const discounts = await prisma.discount.findMany({
     where: { isActive: true, startsAt: { lte: now }, endsAt: { gte: now } },
     orderBy: { priority: "asc" },
   });
 
-  const result = new Map<string, ResolvedDiscount>();
-  for (const line of lines) {
+  return lines.map((line) => {
     const lineTotal = line.qty * line.unitPrice;
-    if (lineTotal <= 0) continue;
+    if (lineTotal <= 0) return null;
 
     for (const d of discounts) {
       const products = Array.isArray(d.products) ? (d.products as { sku?: string }[]) : [];
@@ -77,9 +87,9 @@ export async function resolveDiscountsForLines(
           ? lineTotal * (Number(d.discountAmount) / 100)
           : Number(d.discountAmount) * line.qty;
 
-      result.set(line.sku, { id: d.id, name: d.name, amountForLine: Math.min(Math.max(rawAmount, 0), lineTotal) });
-      break; // highest-priority match wins, stop scanning for this line
+      // highest-priority match wins, stop scanning for this line
+      return { id: d.id, name: d.name, amountForLine: Math.min(Math.max(rawAmount, 0), lineTotal) };
     }
-  }
-  return result;
+    return null;
+  });
 }
