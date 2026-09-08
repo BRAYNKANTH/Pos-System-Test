@@ -1,132 +1,19 @@
-"use client";
+import { prisma } from "@/lib/prisma";
+import { LoginClient } from "./LoginClient";
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
+const FALLBACK_BIZ_NAME = "Cloud POS System";
 
-function LoginForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+// Server Component — reads the shop name directly via Prisma instead of
+// through /api/business-info, which requires a logged-in session (see
+// that route's own docs). The login page is by definition the one place a
+// visitor is never authenticated yet, so a client-side fetch of that
+// endpoint would 401 every time and the "cool branding" would never show
+// anything but the generic fallback. A bare shop name isn't sensitive
+// data, so reading it here needs no auth check.
+export default async function LoginPage() {
+  const settings = await prisma.businessSettings.findUnique({ where: { id: "default" } }).catch(() => null);
+  const data = (settings?.data as { bizName?: string } | null) ?? null;
+  const bizName = data?.bizName?.trim() || FALLBACK_BIZ_NAME;
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const body = await res.json();
-      if (!body.success) {
-        setError(body.error?.message ?? "Login failed");
-        return;
-      }
-      // `from` is attacker-controllable — anyone can send a victim a link
-      // like /login?from=https://evil.example/phish and, after they log
-      // in with real credentials, this would send them straight there. A
-      // safe redirect target must be an internal path: starts with a
-      // single "/" (rejecting "//evil.com" and "/\evil.com", both of
-      // which browsers can treat as protocol-relative), and never "/login"
-      // itself (which would just bounce back here).
-      const from = searchParams.get("from");
-      const isSafeInternalPath = (p: string | null): p is string =>
-        !!p && p.startsWith("/") && !p.startsWith("//") && !p.startsWith("/\\") && p !== "/login";
-      router.push(isSafeInternalPath(from) ? from : "/");
-      router.refresh();
-    } catch {
-      setError("Something went wrong. Try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const inputClass =
-    "h-9 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none " +
-    "transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 " +
-    "dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-indigo-500 dark:focus:ring-indigo-400/20";
-
-  return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Cloud POS System</h1>
-        <p className="mt-1 text-sm text-zinc-500">Sign in to continue.</p>
-      </div>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="email" className="text-sm font-medium">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            autoFocus
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={inputClass}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="password" className="text-sm font-medium">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={inputClass}
-          />
-        </div>
-        {error && (
-          <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
-            {error}
-          </p>
-        )}
-        <Button type="submit" disabled={loading} className="mt-1">
-          {loading ? "Signing in…" : "Sign in"}
-        </Button>
-      </form>
-
-      {/* Seed credentials — only shown in development to avoid leaking
-          test accounts in production deployments. */}
-      {process.env.NODE_ENV === "development" && (
-        <p className="rounded border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900">
-          <strong>Dev logins:</strong> admin@pos.local / Admin123! · cashier@pos.local / Cashier123!
-        </p>
-      )}
-    </main>
-  );
-}
-
-// Suspense boundary needed because LoginForm uses useSearchParams() which
-// opts the component into client-side rendering and requires Suspense to
-// avoid a flash of empty content during the server-to-client handoff.
-export default function LoginPage() {
-  return (
-    <Suspense
-      fallback={
-        <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
-          <div className="flex flex-col gap-4">
-            <div className="h-7 w-48 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-            <div className="h-4 w-32 animate-pulse rounded bg-zinc-100 dark:bg-zinc-900" />
-            <div className="mt-4 h-9 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-900" />
-            <div className="h-9 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-900" />
-            <div className="h-9 animate-pulse rounded-lg bg-blue-100 dark:bg-blue-950/20" />
-          </div>
-        </main>
-      }
-    >
-      <LoginForm />
-    </Suspense>
-  );
+  return <LoginClient bizName={bizName} />;
 }
