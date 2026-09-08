@@ -238,10 +238,10 @@ export function CartPanel({
   }
 
   return (
-    <div className="flex flex-1 flex-col rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs dark:border-zinc-800 dark:bg-zinc-950 min-h-0">
-      
+    <div className="flex flex-1 flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-950 min-h-0">
+
       {/* ── Top Bar: Customer Selector + Add Customer ──────────────────────── */}
-      <div className="mb-2.5 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <CustomerCombobox
           id="pos-customer-select"
           value={customerId || null}
@@ -250,19 +250,19 @@ export function CartPanel({
         />
         <button
           onClick={() => setIsCustomerModalOpen(true)}
-          className="flex h-9 px-2.5 items-center gap-1 shrink-0 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 text-xs font-bold transition"
+          className="flex h-10 px-3 items-center gap-1.5 shrink-0 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 text-sm font-bold transition"
           title="Add New Customer"
         >
-          <UserPlus className="h-4 w-4" />
+          <UserPlus className="h-4.5 w-4.5" />
           <span>New</span>
         </button>
       </div>
 
       {/* Customer Loyalty Tier & Points Badge */}
       {customerLoyalty && (
-        <div className="mb-2.5 flex items-center justify-between p-2 rounded-lg bg-indigo-50/70 border border-indigo-200 text-xs dark:bg-indigo-950/30 dark:border-indigo-900/40">
+        <div className="mb-3 flex items-center justify-between p-2.5 rounded-lg bg-indigo-50/70 border border-indigo-200 text-xs dark:bg-indigo-950/30 dark:border-indigo-900/40">
           <div className="flex items-center gap-1.5 font-bold text-indigo-900 dark:text-indigo-300">
-            <span className="px-1.5 py-0.5 rounded bg-indigo-200 text-indigo-800 text-[10px] font-extrabold uppercase dark:bg-indigo-900 dark:text-indigo-200">
+            <span className="px-1.5 py-0.5 rounded bg-indigo-200 text-indigo-800 text-[11px] font-extrabold uppercase dark:bg-indigo-900 dark:text-indigo-200">
               🏆 {customerLoyalty.loyaltyTier} Member
             </span>
             <span>{customerLoyalty.loyaltyPoints} Pts (Rs {customerLoyalty.maxDiscountValue.toFixed(2)})</span>
@@ -271,7 +271,7 @@ export function CartPanel({
           {loyaltyRedeem ? (
             <button
               onClick={clearLoyaltyRedeem}
-              className="px-2 py-1 rounded bg-emerald-600 hover:bg-red-600 text-white font-extrabold text-[10px] transition shadow-2xs"
+              className="px-2 py-1 rounded bg-emerald-600 hover:bg-red-600 text-white font-extrabold text-[11px] transition shadow-2xs"
               title="Click to remove the applied loyalty discount"
             >
               Applied ({loyaltyRedeem.points} pts) ✕
@@ -282,7 +282,7 @@ export function CartPanel({
                 onClick={() => {
                   applyLoyaltyRedeem(customerLoyalty.loyaltyPoints, customerLoyalty.maxDiscountValue);
                 }}
-                className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] transition shadow-2xs"
+                className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] transition shadow-2xs"
               >
                 Apply Loyalty Disc
               </button>
@@ -292,9 +292,9 @@ export function CartPanel({
       )}
 
       {/* ── Quick Product Search & Scan ────────────────────────────────────── */}
-      <div className="relative mb-2.5 flex gap-1.5">
+      <div className="relative mb-3 flex gap-1.5">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-zinc-400" />
           <input
             type="text"
             placeholder="Scan SKU / Barcode / Search..."
@@ -304,7 +304,7 @@ export function CartPanel({
               setShowProductDropdown(true);
             }}
             onFocus={() => setShowProductDropdown(true)}
-            className="h-9 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-9 pr-8 text-xs font-medium outline-none focus:border-indigo-500 focus:bg-white dark:border-zinc-700 dark:bg-zinc-900"
+            className="h-11 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-10 pr-8 text-sm font-medium outline-none focus:border-indigo-500 focus:bg-white dark:border-zinc-700 dark:bg-zinc-900"
           />
           {productQuery && (
             <button
@@ -314,14 +314,14 @@ export function CartPanel({
               }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
             >
-              <X className="h-4 w-4" />
+              <X className="h-4.5 w-4.5" />
             </button>
           )}
         </div>
 
         {/* Dropdown Results */}
         {showProductDropdown && filteredProducts.length > 0 && (
-          <div className="absolute left-0 right-0 top-10 z-30 max-h-56 overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="absolute left-0 right-0 top-12 z-30 max-h-64 overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
             {filteredProducts.map((p) => (
               <button
                 key={p.sku}
@@ -331,15 +331,15 @@ export function CartPanel({
                   setShowProductDropdown(false);
                 }}
                 disabled={p.qtyOnHand <= 0}
-                className="flex w-full items-center justify-between px-3.5 py-2 text-left text-xs hover:bg-indigo-50/60 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed border-b border-zinc-50 dark:border-zinc-800/50 last:border-0"
+                className="flex w-full items-center justify-between px-3.5 py-2.5 text-left text-sm hover:bg-indigo-50/60 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed border-b border-zinc-50 dark:border-zinc-800/50 last:border-0"
               >
                 <div>
                   <p className="font-bold text-zinc-800 dark:text-zinc-200">{p.name}</p>
-                  <p className="text-[10px] font-mono text-zinc-400">{p.sku}</p>
+                  <p className="text-xs font-mono text-zinc-400">{p.sku}</p>
                 </div>
                 <div className="text-right">
                   <p className="font-mono font-bold text-indigo-600 dark:text-indigo-400">Rs {p.unitPrice.toFixed(2)}</p>
-                  <p className="text-[10px] text-zinc-400">{p.qtyOnHand} in stock</p>
+                  <p className="text-xs text-zinc-400">{p.qtyOnHand} in stock</p>
                 </div>
               </button>
             ))}
@@ -362,22 +362,22 @@ export function CartPanel({
       )}
 
       {/* ── Cart Items Table ──────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-lg mb-2.5 dark:border-zinc-800 scrollbar-thin min-h-[160px]">
-        <table className="w-full text-xs table-fixed">
-          <thead className="bg-zinc-50 sticky top-0 text-left font-bold text-zinc-500 border-b border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 z-10 select-none">
+      <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-lg mb-3 dark:border-zinc-800 scrollbar-thin min-h-[160px]">
+        <table className="w-full text-sm table-fixed">
+          <thead className="bg-zinc-50 sticky top-0 text-left font-bold text-zinc-500 border-b border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 z-10 select-none text-xs">
             <tr>
-              <th className="px-3 py-2 w-[48%]">Item</th>
-              <th className="px-1 py-2 text-center w-[24%]">Qty</th>
-              <th className="px-2 py-2 text-right w-[20%]">Total</th>
-              <th className="px-1 py-2 text-center w-[8%]"></th>
+              <th className="px-3 py-2.5 w-[46%]">Item</th>
+              <th className="px-1 py-2.5 text-center w-[26%]">Qty</th>
+              <th className="px-2 py-2.5 text-right w-[20%]">Total</th>
+              <th className="px-1 py-2.5 text-center w-[8%]"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
             {lines.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-16 text-center text-zinc-400">
-                  <p className="text-xs font-semibold">Cart is currently empty</p>
-                  <p className="text-[11px] text-zinc-400 mt-1">Scan an item or select from the product catalog</p>
+                  <p className="text-sm font-semibold">Cart is currently empty</p>
+                  <p className="text-xs text-zinc-400 mt-1">Scan an item or select from the product catalog</p>
                 </td>
               </tr>
             ) : (
@@ -396,25 +396,25 @@ export function CartPanel({
                   <React.Fragment key={line.id}>
                     <tr className={`hover:bg-zinc-50/70 dark:hover:bg-zinc-900/40 transition ${isExpanded ? "bg-indigo-50/30 dark:bg-indigo-950/20" : ""}`}>
                       {/* Product Name & SKU */}
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => setExpandedLineId(isExpanded ? null : line.id)}
                             className="text-zinc-400 hover:text-indigo-600 transition"
                             title="Edit price override, discount, batch, or serial"
                           >
-                            {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-indigo-600" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                            {isExpanded ? <ChevronUp className="h-4 w-4 text-indigo-600" /> : <ChevronDown className="h-4 w-4" />}
                           </button>
                           <div className="truncate">
                             <p className="font-bold text-zinc-900 dark:text-zinc-100 truncate flex items-center gap-1.5">
                               {line.name}
                               {line.isReturnable === false && (
-                                <span className="rounded bg-amber-100 text-amber-800 text-[8.5px] px-1 py-0.2 font-bold dark:bg-amber-950/60 dark:text-amber-300">
+                                <span className="rounded bg-amber-100 text-amber-800 text-[9.5px] px-1 py-0.2 font-bold dark:bg-amber-950/60 dark:text-amber-300">
                                   Final Sale
                                 </span>
                               )}
                             </p>
-                            <p className="text-[10px] font-mono text-zinc-400 tabular-nums flex items-center gap-1 flex-wrap">
+                            <p className="text-[11px] font-mono text-zinc-400 tabular-nums flex items-center gap-1 flex-wrap">
                               {line.scaleWeight ? (
                                 <span className="text-blue-600 dark:text-blue-400 font-bold">
                                   {line.scaleWeight.toFixed(3)} kg @ Rs {(line.displayRatePerKg ?? line.unitPrice).toFixed(2)}/kg
@@ -447,10 +447,10 @@ export function CartPanel({
                           own serial), so "quantity" here is never
                           meaningful to bump; scan/add again for another
                           unit instead. */}
-                      <td className="px-1 py-2 text-center">
+                      <td className="px-1 py-2.5 text-center">
                         {isLockedQty ? (
                           <span
-                            className="text-[10px] font-bold text-zinc-400 uppercase"
+                            className="text-[11px] font-bold text-zinc-400 uppercase"
                             title={line.isScaleItem ? "Weighed item — scan/add again for another" : "Serialized item — add again for another unit"}
                           >
                             1 {line.isScaleItem ? "wt" : "unit"}
@@ -459,9 +459,9 @@ export function CartPanel({
                           <div className="inline-flex items-center border border-zinc-200 rounded-md bg-white dark:border-zinc-700 dark:bg-zinc-900 shadow-2xs">
                             <button
                               onClick={() => setQty(line.id, Math.max(0, line.qty - 1))}
-                              className="h-6 w-5 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-l transition"
+                              className="h-8 w-7 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-l transition"
                             >
-                              <Minus className="h-2.5 w-2.5" />
+                              <Minus className="h-3 w-3" />
                             </button>
                             <input
                               type="number"
@@ -469,31 +469,31 @@ export function CartPanel({
                               step="1"
                               value={line.qty}
                               onChange={(e) => setQty(line.id, Math.max(0, parseFloat(e.target.value) || 0))}
-                              className="h-6 w-8 text-center text-xs font-bold font-mono outline-none focus:ring-1 focus:ring-indigo-500 rounded dark:bg-zinc-900 text-zinc-900 dark:text-white tabular-nums"
+                              className="h-8 w-10 text-center text-sm font-bold font-mono outline-none focus:ring-1 focus:ring-indigo-500 rounded dark:bg-zinc-900 text-zinc-900 dark:text-white tabular-nums"
                             />
                             <button
                               onClick={() => setQty(line.id, line.qty + 1)}
-                              className="h-6 w-5 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-r transition"
+                              className="h-8 w-7 flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-r transition"
                             >
-                              <Plus className="h-2.5 w-2.5" />
+                              <Plus className="h-3 w-3" />
                             </button>
                           </div>
                         )}
                       </td>
 
                       {/* Subtotal */}
-                      <td className="px-2 py-2 text-right font-mono font-extrabold text-zinc-900 dark:text-zinc-100 tabular-nums">
+                      <td className="px-2 py-2.5 text-right font-mono font-extrabold text-zinc-900 dark:text-zinc-100 tabular-nums">
                         Rs {sub.toFixed(2)}
                       </td>
 
                       {/* Delete */}
-                      <td className="px-1 py-2 text-center">
+                      <td className="px-1 py-2.5 text-center">
                         <button
                           onClick={() => handleRemoveItemWithUndo(line, idx)}
-                          className="h-6 w-6 flex items-center justify-center rounded text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                          className="h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
                           title="Remove item"
                         >
-                          <X className="h-3.5 w-3.5" />
+                          <X className="h-4 w-4" />
                         </button>
                       </td>
                     </tr>
@@ -502,7 +502,7 @@ export function CartPanel({
                     {isExpanded && (
                       <tr className="bg-indigo-50/40 dark:bg-indigo-950/20 border-b border-indigo-100 dark:border-indigo-900/40">
                         <td colSpan={4} className="p-3">
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2.5 text-[11px]">
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
 
                             {/* Price Override */}
                             <div>
@@ -519,7 +519,7 @@ export function CartPanel({
                                     setLinePriceOverride(line.id, null);
                                   }
                                 }}
-                                className="h-7 w-full rounded border border-zinc-300 bg-white px-2 font-mono text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                className="h-8 w-full rounded border border-zinc-300 bg-white px-2 font-mono text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
                               />
                             </div>
 
@@ -541,7 +541,7 @@ export function CartPanel({
                                       setLineDiscount(line.id, null);
                                     }
                                   }}
-                                  className="h-7 flex-1 rounded border border-zinc-300 bg-white px-2 font-mono text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                  className="h-8 flex-1 rounded border border-zinc-300 bg-white px-2 font-mono text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
                                 />
                                 <select
                                   value={line.lineDiscount?.type || "percent"}
@@ -551,7 +551,7 @@ export function CartPanel({
                                       setLineDiscount(line.id, { ...line.lineDiscount, type });
                                     }
                                   }}
-                                  className="h-7 rounded border border-zinc-300 bg-white px-1.5 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                  className="h-8 rounded border border-zinc-300 bg-white px-1.5 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
                                 >
                                   <option value="percent">%</option>
                                   <option value="amount">Rs</option>
@@ -571,7 +571,7 @@ export function CartPanel({
                                 placeholder="Batch (e.g. LOT-2026A)"
                                 defaultValue={line.batchNumber ?? ""}
                                 onBlur={(e) => useCartStore.getState().setLineBatch(line.id, e.target.value.trim())}
-                                className="h-7 w-full rounded border border-zinc-300 bg-white px-2 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                className="h-8 w-full rounded border border-zinc-300 bg-white px-2 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
                               />
                             </div>
 
@@ -589,7 +589,7 @@ export function CartPanel({
                                   const val = e.target.value.trim();
                                   useCartStore.getState().setLineSerials(line.id, val ? [val] : []);
                                 }}
-                                className="h-7 w-full rounded border border-zinc-300 bg-white px-2 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                className="h-8 w-full rounded border border-zinc-300 bg-white px-2 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
                               />
                             </div>
 
@@ -606,28 +606,28 @@ export function CartPanel({
       </div>
 
       {/* ── Cart Totals Summary (Inline Editable Controls) ─────────────────── */}
-      <div className="border-t border-zinc-200 pt-2.5 dark:border-zinc-800 select-none">
-        
+      <div className="border-t border-zinc-200 pt-3 dark:border-zinc-800 select-none">
+
         {/* Row 1: Subtotal, Items count, Grand Total */}
-        <div className="flex items-center justify-between text-sm font-extrabold text-zinc-900 dark:text-white mb-2">
-          <span className="text-zinc-500 font-semibold text-xs">
+        <div className="flex items-center justify-between font-extrabold text-zinc-900 dark:text-white mb-2.5">
+          <span className="text-zinc-500 font-semibold text-sm">
             Items: <span className="text-zinc-900 dark:text-white font-mono">{lines.reduce((acc, l) => acc + l.qty, 0)}</span>
           </span>
-          <span>
-            Total: <span className="font-mono text-base text-indigo-700 dark:text-indigo-400 tabular-nums">Rs {calc.total.toFixed(2)}</span>
+          <span className="text-sm">
+            Total: <span className="font-mono text-xl text-indigo-700 dark:text-indigo-400 tabular-nums">Rs {calc.total.toFixed(2)}</span>
           </span>
         </div>
 
         {/* Row 2: Inline Quick Controls (Discount, Tax, Shipping) */}
-        <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+        <div className="grid grid-cols-3 gap-2 text-xs">
           
           {/* Inline Discount Control */}
-          <div className="rounded-lg bg-zinc-50 p-2 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
-            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
+          <div className="rounded-lg bg-zinc-50 p-2.5 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[11px]">
               <span>Discount</span>
               <button
                 onClick={() => setEditingDiscountInline(!editingDiscountInline)}
-                className="text-indigo-600 hover:text-indigo-700 text-[10px] font-bold"
+                className="text-indigo-600 hover:text-indigo-700 text-[11px] font-bold"
               >
                 {editingDiscountInline ? "Done" : "Edit"}
               </button>
@@ -640,7 +640,7 @@ export function CartPanel({
                   value={discountVal}
                   onChange={(e) => setDiscountVal(Number(e.target.value) || 0)}
                   onBlur={applyInlineDiscount}
-                  className="h-6 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-xs outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 dark:bg-zinc-800"
+                  className="h-7 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-sm outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 dark:bg-zinc-800"
                 />
                 <button
                   onClick={() => {
@@ -648,36 +648,36 @@ export function CartPanel({
                     setDiscountType(nextType);
                     if (discountVal > 0) setDiscount({ type: nextType, value: discountVal });
                   }}
-                  className="h-6 px-1.5 rounded bg-zinc-200 font-bold text-[10px] text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300"
+                  className="h-7 px-1.5 rounded bg-zinc-200 font-bold text-[11px] text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300"
                 >
                   {discountType === "percent" ? "%" : "Rs"}
                 </button>
               </div>
             ) : (
-              <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
+              <span className="font-mono font-bold text-sm text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
                 {discount ? `${discount.value}${discount.type === "percent" ? "%" : " Rs"}` : "0.00"}
               </span>
             )}
           </div>
 
           {/* Tax info */}
-          <div className="rounded-lg bg-zinc-50 p-2 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
-            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
+          <div className="rounded-lg bg-zinc-50 p-2.5 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[11px]">
               <span>Tax Rate</span>
-              <span className="text-[10px] text-zinc-400 font-normal">DB</span>
+              <span className="text-[11px] text-zinc-400 font-normal">DB</span>
             </div>
-            <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
+            <span className="font-mono font-bold text-sm text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
               {(taxRate * 100).toFixed(1)}%
             </span>
           </div>
 
           {/* Inline Shipping Control */}
-          <div className="rounded-lg bg-zinc-50 p-2 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
-            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
+          <div className="rounded-lg bg-zinc-50 p-2.5 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-zinc-500 font-bold uppercase tracking-wider text-[11px]">
               <span>Shipping</span>
               <button
                 onClick={() => setEditingShippingInline(!editingShippingInline)}
-                className="text-indigo-600 hover:text-indigo-700 text-[10px] font-bold"
+                className="text-indigo-600 hover:text-indigo-700 text-[11px] font-bold"
               >
                 {editingShippingInline ? "Done" : "Edit"}
               </button>
@@ -690,11 +690,11 @@ export function CartPanel({
                   value={shippingVal}
                   onChange={(e) => setShippingVal(Number(e.target.value) || 0)}
                   onBlur={applyInlineShipping}
-                  className="h-6 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-xs outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 dark:bg-zinc-800"
+                  className="h-7 w-full rounded border border-indigo-400 bg-white px-1 font-mono text-sm outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 dark:bg-zinc-800"
                 />
               </div>
             ) : (
-              <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
+              <span className="font-mono font-bold text-sm text-zinc-800 dark:text-zinc-200 mt-1 tabular-nums">
                 Rs {shipping ? Number(shipping).toFixed(2) : "0.00"}
               </span>
             )}

@@ -103,9 +103,16 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
   // disabled (totalPaying < total) with no visible reason why, which is
   // exactly what read as "the pay now button isn't working."
   const wasOpenRef = useRef(false);
+  // Tender rows whose amount is still an auto-filled suggestion (from the
+  // modal opening, a Fast Cash shortcut, or a new split row defaulting to
+  // the remaining balance) that the cashier hasn't actually typed into
+  // yet. The first keystroke into one of these should replace the
+  // suggestion, not land after it — see the amount input's onChange.
+  const freshTenderRef = useRef<Set<number>>(new Set([0]));
   useEffect(() => {
     if (open && !wasOpenRef.current) {
       setTenders([{ method: "cash", amount: total }]);
+      freshTenderRef.current = new Set([0]);
       setSellNote("");
       setStaffNote("");
       setError(null);
@@ -137,7 +144,10 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
 
   function addPaymentRow() {
     // Default the next row's amount to the remaining balance
-    setTenders((prev) => [...prev, { method: "cash", amount: balance }]);
+    setTenders((prev) => {
+      freshTenderRef.current.add(prev.length);
+      return [...prev, { method: "cash", amount: balance }];
+    });
   }
 
   function removePaymentRow(index: number) {
@@ -294,19 +304,24 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
   // after all of them, not in the middle.
   if (!open) return null;
 
-  // Fast cash presets handler
+  // Fast cash presets handler — each replaces row 0 with a fresh
+  // suggested amount, so a keystroke right after clicking one of these
+  // should still replace rather than land after it.
   function handleSetExactCash() {
     setTenders([{ method: "cash", amount: total }]);
+    freshTenderRef.current = new Set([0]);
   }
 
   function handleAddCashDenomination(addAmount: number) {
     const current = Number(tenders[0]?.amount || 0);
     setTenders([{ method: "cash", amount: Math.round((current + addAmount) * 100) / 100 }]);
+    freshTenderRef.current = new Set([0]);
   }
 
   function handleSetRoundCash(roundTo: number) {
     const rounded = Math.ceil(total / roundTo) * roundTo;
     setTenders([{ method: "cash", amount: rounded }]);
+    freshTenderRef.current = new Set([0]);
   }
 
   // Render the Receipt Preview Modal overlay on successful payment completion
@@ -612,7 +627,37 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                           min="0"
                           autoFocus={index === 0}
                           value={tender.amount === 0 ? "" : tender.amount}
-                          onChange={(e) => updateTender(index, "amount", Number(e.target.value))}
+                          onChange={(e) => {
+                            let raw = e.target.value;
+                            // The field opens pre-filled with a suggested
+                            // amount (the exact total, a Fast Cash preset,
+                            // or the remaining balance on a new split row)
+                            // — typing the customer's actual cash amount
+                            // used to land after that suggestion instead
+                            // of replacing it, e.g. typing "2000" over a
+                            // prefilled "1980" produced "19802000".
+                            // Select-on-focus looked like the fix, but
+                            // .select() is racy specifically for the
+                            // autoFocus-triggered initial focus (fires
+                            // before the browser's own focus/caret
+                            // handling settles, so it can silently no-op —
+                            // and deferring it a tick doesn't reliably
+                            // help either, since fast/synthetic typing can
+                            // outrun the deferral). This instead detects
+                            // the actual symptom directly: on this row's
+                            // first edit since the value was auto-filled,
+                            // if what the browser reports is that old
+                            // suggestion with new digits appended after
+                            // it, keep only the appended part.
+                            if (freshTenderRef.current.has(index)) {
+                              freshTenderRef.current.delete(index);
+                              const prevStr = tender.amount === 0 ? "" : String(tender.amount);
+                              if (prevStr && raw.startsWith(prevStr) && raw.length > prevStr.length) {
+                                raw = raw.slice(prevStr.length);
+                              }
+                            }
+                            updateTender(index, "amount", Number(raw));
+                          }}
                           placeholder="0.00"
                           className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-base font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800 font-mono tabular-nums text-zinc-900 dark:text-white"
                         />
@@ -715,20 +760,24 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
           </div>
         </div>
 
-        {/* Right Side: Totals & Change Panel (Modern High-Contrast Navy/Indigo) */}
-        <div className="w-full md:w-80 bg-zinc-900 text-white p-6 flex flex-col justify-between shrink-0 border-l border-zinc-800">
-          <div className="space-y-4">
-            <div className="border-b border-zinc-800 pb-3 flex justify-between items-baseline">
+        {/* Right Side: Totals & Change Panel — navy/indigo gradient (matches
+            the login page's hero panel) rather than flat zinc-900, which
+            read as plain black instead of the "high-contrast navy" the
+            panel was going for. */}
+        <div className="relative w-full md:w-80 overflow-hidden bg-gradient-to-br from-zinc-900 via-indigo-950 to-zinc-950 text-white p-6 flex flex-col justify-between shrink-0 border-l border-white/10">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-indigo-600/20 blur-3xl" />
+          <div className="relative space-y-4">
+            <div className="border-b border-white/10 pb-3 flex justify-between items-baseline">
               <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Total Items</span>
               <span className="text-xl font-bold font-mono tabular-nums">{totalItems.toFixed(0)}</span>
             </div>
 
-            <div className="border-b border-zinc-800 pb-3 flex justify-between items-baseline">
+            <div className="border-b border-white/10 pb-3 flex justify-between items-baseline">
               <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Total Payable</span>
               <span className="text-2xl font-extrabold font-mono text-white tabular-nums">Rs {total.toFixed(2)}</span>
             </div>
 
-            <div className="border-b border-zinc-800 pb-3 flex justify-between items-baseline">
+            <div className="border-b border-white/10 pb-3 flex justify-between items-baseline">
               <span className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">Total Paying</span>
               <span className="text-xl font-bold font-mono text-indigo-300 tabular-nums">Rs {totalPaying.toFixed(2)}</span>
             </div>
@@ -737,7 +786,7 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
             <div className={`p-4 rounded-xl transition-all ${
               changeReturn > 0
                 ? "bg-emerald-950/80 border border-emerald-500 text-emerald-300"
-                : "bg-zinc-800/80 border border-zinc-700 text-zinc-300"
+                : "bg-white/[0.06] border border-white/10 text-zinc-300"
             }`}>
               <div className="flex justify-between items-center">
                 <span className="text-xs uppercase tracking-wider font-bold">Change Return</span>
@@ -765,7 +814,7 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
             <button
               onClick={onClose}
               disabled={submitting}
-              className="h-10 w-full rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-300 transition uppercase tracking-wide disabled:opacity-40 disabled:cursor-not-allowed"
+              className="h-10 w-full rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-bold text-zinc-300 transition uppercase tracking-wide disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Cancel (Esc)
             </button>

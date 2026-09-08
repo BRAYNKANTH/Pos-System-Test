@@ -593,16 +593,17 @@ export default function PosPage() {
       )}
 
       {/* ────────────────────────────────────────────────────────────────── */}
-      {/* MAIN WORKSPACE SPLIT (38% Cart / 62% Product Catalog Grid)       */}
+      {/* MAIN WORKSPACE SPLIT (44% Cart / 56% Product Catalog Grid)       */}
       {/* ────────────────────────────────────────────────────────────────── */}
       <main className="flex-1 flex flex-col lg:flex-row gap-3 p-3 min-h-0 overflow-hidden">
-        {/* Left: Invoice Cart Panel (38% on Large/Laptop) */}
-        <div className="w-full lg:w-[38%] flex flex-col min-h-0 shrink-0">
+        {/* Left: Invoice Cart Panel (44% on Large/Laptop — widened from 38%
+            so the larger billing-panel text/controls have room to breathe) */}
+        <div className="w-full lg:w-[44%] flex flex-col min-h-0 shrink-0">
           <CartPanel products={products} calculation={calculation} taxRate={taxRate} />
         </div>
 
-        {/* Right: Product Catalog Grid (62% on Large/Laptop) */}
-        <div className="w-full lg:w-[62%] flex flex-col min-h-0 flex-1">
+        {/* Right: Product Catalog Grid (56% on Large/Laptop) */}
+        <div className="w-full lg:w-[56%] flex flex-col min-h-0 flex-1">
           <ProductSearch products={products} />
         </div>
       </main>
