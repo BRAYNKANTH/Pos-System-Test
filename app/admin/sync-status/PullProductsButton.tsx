@@ -23,10 +23,11 @@ export function PullProductsButton() {
       const res = await fetch("/api/admin/sync/pull-products", { method: "POST" });
       const body = await res.json();
       if (body.success) {
-        const { created, updated, removed, errors } = body.data;
+        const { created, updated, removed, errors, pagesFetched, stoppedEarly } = body.data;
         setMsg(
-          `Created ${created}, updated ${updated}, removed ${removed}` +
-            (errors.length > 0 ? ` — ${errors.length} error(s), see server log` : ""),
+          `Created ${created}, updated ${updated}, removed ${removed} (${pagesFetched} page(s) fetched)` +
+            (stoppedEarly ? " — stopped early, see errors below" : "") +
+            (errors.length > 0 ? ` — ${errors.length} error(s): ${errors[0].message}` : ""),
         );
         router.refresh();
       } else {

@@ -549,6 +549,8 @@ type ZohoItemFields = {
   purchase_rate?: string | number;
   category_name?: string | null;
   brand?: string | null;
+  stock_on_hand?: string | number;
+  available_stock?: string | number;
 };
 
 function catalogFieldsFromZohoItem(item: ZohoItemFields) {
@@ -579,7 +581,12 @@ async function upsertProductFromZoho(item: ZohoItemFields) {
     await prisma.inventoryItem.update({ where: { id: existing.id }, data: fields });
     return "updated" as const;
   }
-  await prisma.inventoryItem.create({ data: { sku: item.sku, qtyOnHand: 0, ...fields } });
+  // Starting stock only applies on a brand-new product — there's no
+  // existing POS reality to protect yet, and without this every freshly
+  // imported item would sit at 0 until someone re-keys 10,000+ counts by
+  // hand, which defeats the point of importing from Zoho at all.
+  const startingQty = Math.max(0, Math.round(Number(item.stock_on_hand ?? item.available_stock ?? 0)));
+  await prisma.inventoryItem.create({ data: { sku: item.sku, qtyOnHand: startingQty, ...fields } });
   return "created" as const;
 }
 
@@ -596,13 +603,42 @@ async function upsertProductFromZoho(item: ZohoItemFields) {
 export async function pullAllProductsFromZoho(actorId?: string) {
   const connection = await getValidConnection();
 
-  const result = { created: 0, updated: 0, removed: 0, errors: [] as { item: string; message: string }[] };
+  const result = {
+    created: 0,
+    updated: 0,
+    removed: 0,
+    pagesFetched: 0,
+    stoppedEarly: false,
+    errors: [] as { item: string; message: string }[],
+  };
   const seenZohoIds = new Set<string>();
 
   let page = 1;
   for (;;) {
-    const body = await zohoFetch(connection, "/items", {}, { page: String(page), per_page: "200" });
-    const items: ZohoItemFields[] = body.items ?? [];
+    let body: { items?: ZohoItemFields[]; page_context?: { has_more_page?: boolean } };
+    try {
+      body = await zohoFetch(connection, "/items", {}, { page: String(page), per_page: "200" });
+    } catch (err) {
+      // A later page failing (rate limit, transient network error) used
+      // to throw out of the whole function, discarding this result
+      // object — silently losing the record of everything already
+      // imported from earlier pages even though those upserts had
+      // already committed to the DB. Stop and report instead, so a
+      // partial run is visibly partial rather than looking like either
+      // a full success or a total failure.
+      result.stoppedEarly = true;
+      result.errors.push({ item: `page ${page}`, message: err instanceof Error ? err.message : String(err) });
+      break;
+    }
+    result.pagesFetched = page;
+    const items = body.items ?? [];
+    if (page === 1 && items[0]) {
+      // Diagnostic only — confirms the real field names/shape Zoho sent
+      // for this org (rate/purchase_rate/stock_on_hand names, or lack
+      // thereof, can vary by plan and item type), since a wrong
+      // assumption here silently produces 0s rather than an error.
+      console.log("[zoho pull] sample item from Zoho:", JSON.stringify(items[0]));
+    }
     for (const item of items) {
       seenZohoIds.add(item.item_id);
       try {
@@ -616,10 +652,17 @@ export async function pullAllProductsFromZoho(actorId?: string) {
     page++;
   }
 
-  const localOnly = await prisma.inventoryItem.findMany({
-    where: { zohoItemId: { notIn: Array.from(seenZohoIds) } },
-    select: { id: true, sku: true, zohoItemId: true },
-  });
+  // A run that stopped early only ever saw a partial slice of Zoho's
+  // catalog — reconciling deletions against that partial `seenZohoIds`
+  // would read as "Zoho doesn't have this" for products on pages that
+  // were simply never reached, and delete them for real. Only safe to
+  // prune local-only products once every page has actually been seen.
+  const localOnly = result.stoppedEarly
+    ? []
+    : await prisma.inventoryItem.findMany({
+        where: { zohoItemId: { notIn: Array.from(seenZohoIds) } },
+        select: { id: true, sku: true, zohoItemId: true },
+      });
   for (const product of localOnly) {
     // Never seen an item_id from Zoho for this product yet (zohoItemId
     // still null from before any sync ran) isn't the same claim as
