@@ -93,7 +93,7 @@ export function ShipmentsClient({ initialShipments }: { initialShipments: Shipme
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-5 space-y-4">
+          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-lg w-full p-5 space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="font-bold text-sm text-zinc-800">Add Shipment</h3>
               <button onClick={() => setModalOpen(false)} className="text-zinc-400 hover:text-zinc-600">
@@ -173,7 +173,7 @@ export function ShipmentsClient({ initialShipments }: { initialShipments: Shipme
               {shipments.map((s) => (
                 <tr key={s.id} className="hover:bg-zinc-50/50 transition">
                   <td className="px-4 py-3.5 text-zinc-600">{s.createdAt}</td>
-                  <td className="px-4 py-3.5 font-mono text-zinc-500 text-[11px]">{s.transactionId.slice(0, 12)}…</td>
+                  <td className="px-4 py-3.5 font-mono text-zinc-500 text-[12px]">{s.transactionId.slice(0, 12)}…</td>
                   <td className="px-4 py-3.5 font-bold text-zinc-800">{s.customerName}</td>
                   <td className="px-4 py-3.5 text-zinc-600">{s.carrier ?? "—"}</td>
                   <td className="px-4 py-3.5 font-mono text-zinc-600">{s.trackingNumber ?? "—"}</td>
@@ -181,7 +181,7 @@ export function ShipmentsClient({ initialShipments }: { initialShipments: Shipme
                     <select
                       value={s.status}
                       onChange={(e) => updateStatus(s.id, e.target.value)}
-                      className={`px-2 py-0.5 rounded text-[11px] font-bold capitalize border-0 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 ${STATUS_STYLES[s.status] ?? "bg-zinc-100 text-zinc-700"}`}
+                      className={`px-2 py-0.5 rounded text-[12px] font-bold capitalize border-0 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 ${STATUS_STYLES[s.status] ?? "bg-zinc-100 text-zinc-700"}`}
                     >
                       <option value="pending">Pending</option>
                       <option value="shipped">Shipped</option>

@@ -9,30 +9,35 @@ datasource db {
 }
 
 model User {
-  id                        String              @id @default(cuid())
+  id                        String            @id @default(cuid())
   name                      String
-  email                     String              @unique
+  email                     String            @unique
   passwordHash              String
   pinCode                   String?
-  role                      Role                @default(CASHIER)
-  createdAt                 DateTime            @default(now())
-  updatedAt                 DateTime            @updatedAt
-  auditActorEntries         AuditLog[]          @relation("AuditActor")
-  auditApproverEntries      AuditLog[]          @relation("AuditApprover")
-  approvedBillChanges       BillChangeRequest[] @relation("BillChangeApprovedBy")
-  requestedBillChanges      BillChangeRequest[] @relation("BillChangeRequestedBy")
+  /// Barcode value printed on a manager's physical access card — scanned
+  /// at the POS to authorize a cashier-facing action in place of typing
+  /// pinCode (see lib/auth/managerPin.ts, which accepts either). Unique
+  /// since it identifies one specific physical card; unlike pinCode,
+  /// nothing about it needs to be short or memorable.
+  cardCode                  String?           @unique
+  role                      Role              @default(CASHIER)
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+  auditActorEntries         AuditLog[]        @relation("AuditActor")
+  auditApproverEntries      AuditLog[]        @relation("AuditApprover")
   heldCarts                 HeldCart[]
   sessions                  Session[]
-  approvedStockAdjustments  StockAdjustment[]   @relation("StockAdjustmentApprovedBy")
-  requestedStockAdjustments StockAdjustment[]   @relation("StockAdjustmentRequestedBy")
-  transactions              Transaction[]       @relation("TransactionCashier")
+  approvedStockAdjustments  StockAdjustment[] @relation("StockAdjustmentApprovedBy")
+  requestedStockAdjustments StockAdjustment[] @relation("StockAdjustmentRequestedBy")
+  transactions              Transaction[]     @relation("TransactionCashier")
   stockTransfers            StockTransfer[]
   purchases                 Purchase[]
-  registerSessionsOpened    RegisterSession[]   @relation("RegisterOpenedBy")
-  registerSessionsClosed    RegisterSession[]   @relation("RegisterClosedBy")
+  registerSessionsOpened    RegisterSession[] @relation("RegisterOpenedBy")
+  registerSessionsClosed    RegisterSession[] @relation("RegisterClosedBy")
   cashMovements             CashMovement[]
   salesReturns              SalesReturn[]
   quotations                Quotation[]
+  issuedStoreCredits        StoreCredit[]
 
   @@map("users")
 }
@@ -71,28 +76,29 @@ model AuditLog {
 }
 
 model Transaction {
-  id             String            @id @default(cuid())
-  registerId     String
-  cashierId      String
-  subtotal       Decimal           @db.Decimal(12, 2)
-  tax            Decimal           @db.Decimal(12, 2)
-  total          Decimal           @db.Decimal(12, 2)
-  paymentMethod  String
-  status         String            @default("completed")
-  idempotencyKey String            @unique
-  createdAt      DateTime          @default(now())
-  customerId     String?
-  shipping       Decimal           @default(0) @db.Decimal(12, 2)
-  zohoInvoiceId  String?
-  registerSessionId String?
-  bill           Bill?
-  tenders        PaymentTender[]
-  items          TransactionItem[]
-  cashier        User              @relation("TransactionCashier", fields: [cashierId], references: [id])
-  customer       Customer?         @relation(fields: [customerId], references: [id])
-  registerSession RegisterSession? @relation(fields: [registerSessionId], references: [id])
-  salesReturns   SalesReturn[]
-  shipment       Shipment?
+  id                     String                  @id @default(cuid())
+  registerId             String
+  cashierId              String
+  subtotal               Decimal                 @db.Decimal(12, 2)
+  tax                    Decimal                 @db.Decimal(12, 2)
+  total                  Decimal                 @db.Decimal(12, 2)
+  paymentMethod          String
+  status                 String                  @default("completed")
+  idempotencyKey         String                  @unique
+  createdAt              DateTime                @default(now())
+  customerId             String?
+  shipping               Decimal                 @default(0) @db.Decimal(12, 2)
+  zohoInvoiceId          String?
+  registerSessionId      String?
+  bill                   Bill?
+  tenders                PaymentTender[]
+  items                  TransactionItem[]
+  cashier                User                    @relation("TransactionCashier", fields: [cashierId], references: [id])
+  customer               Customer?               @relation(fields: [customerId], references: [id])
+  registerSession        RegisterSession?        @relation(fields: [registerSessionId], references: [id])
+  salesReturns           SalesReturn[]
+  shipment               Shipment?
+  storeCreditRedemptions StoreCreditRedemption[]
 
   @@map("transactions")
 }
@@ -171,34 +177,18 @@ model TaxRule {
   @@map("tax_rules")
 }
 
+/// zohoCreditNoteId is set when a quick-voided sale's offsetting credit
+/// note has synced to Zoho (see the "bill" case in lib/sync/zohoClient.ts
+/// and /api/pos/void/[id]) — a locked bill never has one otherwise.
 model Bill {
-  id               String              @id @default(cuid())
-  transactionId    String              @unique
-  status           String              @default("locked")
-  lockedAt         DateTime            @default(now())
+  id               String      @id @default(cuid())
+  transactionId    String      @unique
+  status           String      @default("locked")
+  lockedAt         DateTime    @default(now())
   zohoCreditNoteId String?
-  changeRequests   BillChangeRequest[]
-  transaction      Transaction         @relation(fields: [transactionId], references: [id])
+  transaction      Transaction @relation(fields: [transactionId], references: [id])
 
   @@map("bills")
-}
-
-model BillChangeRequest {
-  id              String    @id @default(cuid())
-  billId          String
-  requestedBy     String
-  type            String
-  reason          String
-  proposedChanges Json
-  status          String    @default("pending")
-  approvedBy      String?
-  approvedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  approver        User?     @relation("BillChangeApprovedBy", fields: [approvedBy], references: [id])
-  bill            Bill      @relation(fields: [billId], references: [id])
-  requester       User      @relation("BillChangeRequestedBy", fields: [requestedBy], references: [id])
-
-  @@map("bill_change_requests")
 }
 
 /// `unitPrice`/`category`/`brand` aren't in the original build plan's table
@@ -222,6 +212,12 @@ model InventoryItem {
   isScaleItem       Boolean           @default(false)
   trackSerial       Boolean           @default(false)
   trackBatch        Boolean           @default(false)
+  /// Already sold at a fixed/net price — excluded from a cart-wide
+  /// "Total Discount" at checkout (see lib/pos/pricing.ts's applyDiscount,
+  /// cart-scope branch). A line-level discount or price override can
+  /// still be applied to it directly; this only opts it out of the
+  /// proportional cart-wide split.
+  isNetPriceItem    Boolean           @default(false)
   adjustments       StockAdjustment[]
   locationStock     LocationStock[]
   purchaseItems     PurchaseItem[]
@@ -342,7 +338,7 @@ model Discount {
   priority              Int      @default(1)
   brand                 String?
   category              String?
-  products              Json     // JSON array of DBProduct structure: {sku, name}
+  products              Json // JSON array of DBProduct structure: {sku, name}
   // No hardcoded default — the one creation path (app/api/sales/discounts/
   // route.ts) always resolves a real Location row before inserting, so
   // this default is a safety net only, never meant to actually surface.
@@ -402,12 +398,12 @@ model Purchase {
 }
 
 model PurchaseItem {
-  id         String   @id @default(cuid())
+  id         String        @id @default(cuid())
   purchaseId String
   sku        String
   qty        Int
-  unitCost   Decimal  @db.Decimal(12, 2)
-  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  unitCost   Decimal       @db.Decimal(12, 2)
+  purchase   Purchase      @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
   item       InventoryItem @relation(fields: [sku], references: [sku])
 
   @@map("purchase_items")
@@ -576,13 +572,13 @@ model Printer {
 /// (which is an admin-approval workflow for disputed/incorrect bills;
 /// this is the everyday "customer brought an item back" counter flow).
 model SalesReturn {
-  id            String            @id @default(cuid())
-  transactionId String
-  reason        String
-  refundAmount  Decimal           @db.Decimal(12, 2)
-  refundMethod  String            @default("cash")
-  createdById   String
-  createdAt     DateTime          @default(now())
+  id               String                    @id @default(cuid())
+  transactionId    String
+  reason           String
+  refundAmount     Decimal                   @db.Decimal(12, 2)
+  refundMethod     String                    @default("cash")
+  createdById      String
+  createdAt        DateTime                  @default(now())
   /// An exchange is a return where the customer walks out with different
   /// item(s) instead of (or alongside) getting money back — one atomic
   /// operation instead of a disconnected return + a brand-new sale.
@@ -596,7 +592,10 @@ model SalesReturn {
   transaction      Transaction               @relation(fields: [transactionId], references: [id])
   createdBy        User                      @relation(fields: [createdById], references: [id])
   items            SalesReturnItem[]
-  exchangeItems     SalesReturnExchangeItem[]
+  exchangeItems    SalesReturnExchangeItem[]
+  /// Set when refundMethod is "store_credit" — the credit note this
+  /// return issued (back-relation of StoreCredit.sourceReturnId).
+  storeCredit      StoreCredit?
 
   @@map("sales_returns")
 }
@@ -689,16 +688,47 @@ model GiftCard {
   @@map("gift_cards")
 }
 
+/// A credit note — money owed back to a customer that's redeemed against
+/// a future sale instead of (or alongside) a cash refund. Usually issued
+/// from a sales return (see lib/sales/returns.ts / sourceReturnId below)
+/// but can also be issued manually (goodwill adjustment, price dispute)
+/// from the customer's detail page. `amount` is what was originally
+/// issued; `remainingAmount` is what's left to redeem — it starts equal
+/// to `amount` and is drawn down (oldest credit note first, see
+/// lib/customers/storeCredit.ts) as the customer spends it at checkout.
 model StoreCredit {
-  id         String   @id @default(cuid())
-  customerId String
-  amount     Decimal  @db.Decimal(12, 2)
-  status     String   @default("active") // active | used
-  reason     String?
-  createdAt  DateTime @default(now())
-  customer   Customer @relation(fields: [customerId], references: [id])
+  id              String                  @id @default(cuid())
+  customerId      String
+  amount          Decimal                 @db.Decimal(12, 2)
+  remainingAmount Decimal                 @db.Decimal(12, 2)
+  status          String                  @default("active") // active | used | void
+  reason          String?
+  /// Set only when this credit note was issued from a sales return with
+  /// refundMethod "store_credit" — null for a manually-issued one.
+  sourceReturnId  String?                 @unique
+  createdById     String?
+  createdAt       DateTime                @default(now())
+  customer        Customer                @relation(fields: [customerId], references: [id])
+  sourceReturn    SalesReturn?            @relation(fields: [sourceReturnId], references: [id])
+  createdBy       User?                   @relation(fields: [createdById], references: [id])
+  redemptions     StoreCreditRedemption[]
 
   @@map("store_credits")
+}
+
+/// One row per checkout that spent (part of) a credit note's balance —
+/// the audit trail behind `StoreCredit.remainingAmount`, same relationship
+/// PaymentTender has to Transaction.
+model StoreCreditRedemption {
+  id            String      @id @default(cuid())
+  storeCreditId String
+  transactionId String
+  amount        Decimal     @db.Decimal(12, 2)
+  createdAt     DateTime    @default(now())
+  storeCredit   StoreCredit @relation(fields: [storeCreditId], references: [id])
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+
+  @@map("store_credit_redemptions")
 }
 
 model ItemBatch {
@@ -707,6 +737,16 @@ model ItemBatch {
   batchNumber String
   qtyOnHand   Int           @default(0)
   costPrice   Decimal?      @db.Decimal(12, 2)
+  /// Selling price for units from this specific batch — null means "use
+  /// the product's catalog price" (the common case: batches usually only
+  /// differ in cost, not in what the customer pays). Set when a lot needs
+  /// to sell at a different price than the current catalog rate (e.g. an
+  /// older batch bought cheaper, or a supplier price change mid-stock).
+  /// Distinct from TransactionItem.priceOverride, which is a cashier's
+  /// one-off discretionary adjustment for a single sale — this is the
+  /// batch's own standing price, picked automatically once a cashier
+  /// selects the batch, not a manager-gated override.
+  unitPrice   Decimal?      @db.Decimal(12, 2)
   expiryDate  DateTime?
   createdAt   DateTime      @default(now())
   item        InventoryItem @relation(fields: [sku], references: [sku], onDelete: Cascade)

@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/prisma";
+import { reportRange, reportDatabase } from "@/lib/reports/range";
+import { ReportDateRange } from "../_components/ReportDateRange";
 import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { notFound, redirect } from "next/navigation";
@@ -52,7 +53,7 @@ const REPORT_TYPES = [
   "sales-representative",
 ];
 
-export default async function ReportPage({ params }: { params: Promise<{ type: string }> }) {
+export default async function ReportPage({ params, searchParams }: { params: Promise<{ type: string }>; searchParams: Promise<{ from?: string; to?: string }> }) {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/login");
@@ -72,6 +73,11 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
   if (!REPORT_TYPES.includes(type)) {
     notFound();
   }
+
+  const dates = await searchParams;
+  let range;
+  try { range = reportRange(dates); } catch (e) { return <main className="p-6"><p role="alert">{e instanceof Error ? e.message : 'Invalid dates'}</p><a href={`/reports/${type}`}>Reset dates</a></main>; }
+  const prisma = reportDatabase(range);
 
   // --- QUERY & AGGREGATE DATA BASED ON REPORT TYPE ---
   let title = "";
@@ -1054,5 +1060,5 @@ export default async function ReportPage({ params }: { params: Promise<{ type: s
     plTabsData,
   };
 
-  return <ReportClient reportData={reportData} />;
+  return <><ReportDateRange from={range.from} to={range.to} /><ReportClient reportData={reportData} /></>;
 }

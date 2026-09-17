@@ -1,8 +1,9 @@
-import { prisma } from "@/lib/prisma";
+import { reportRange, reportDatabase } from "@/lib/reports/range";
+import { ReportDateRange } from "../_components/ReportDateRange";
 import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 
-export default async function SalesTrendsPage() {
+export default async function SalesTrendsPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
   const user = await getCurrentUser();
   const allowed = user && (await checkPermission(user.role, PERMISSIONS.REPORTS_VIEW));
   if (!allowed) {
@@ -13,7 +14,10 @@ export default async function SalesTrendsPage() {
     );
   }
 
-  const items = await prisma.transactionItem.findMany();
+  let range;
+  try { range = reportRange(await searchParams); } catch(e) { return <p role="alert">{e instanceof Error ? e.message : 'Invalid dates'} <a href="/reports/sales">Reset dates</a></p>; }
+  const prisma = reportDatabase(range);
+  const items = await prisma.transactionItem.findMany({ where: { transaction: { status: 'completed' } } });
   const bySku = new Map<string, { qty: number; revenue: number }>();
   for (const item of items) {
     const revenue = Number(item.unitPrice) * item.qty - Number(item.discount);
@@ -34,8 +38,9 @@ export default async function SalesTrendsPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-6 py-12">
+      <ReportDateRange from={range.from} to={range.to} />
       <h1 className="text-xl font-semibold tracking-tight">Sales Trends</h1>
-      <p className="text-xs text-zinc-500">Top items by revenue, all time.</p>
+      <p className="text-xs text-zinc-500">Top items by revenue for the selected dates.</p>
 
       <div className="flex flex-col gap-3">
         {trends.length === 0 && <p className="text-sm text-zinc-400">No sales yet.</p>}

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
+import { NumberInput } from "@/components/ui/number-input";
+import { useProducts } from "@/lib/pos/use-products";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -14,7 +16,6 @@ const currencyFmt = (val: number) =>
 
 export function AddQuotationClient() {
   const router = useRouter();
-  const [products, setProducts] = useState<Product[]>([]);
 
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState<string | null>(null);
@@ -28,19 +29,8 @@ export function AddQuotationClient() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetch("/api/pos/products").then((r) => r.json()).then((res) => {
-      if (res.success) setProducts(res.data);
-    });
-  }, []);
-
-  const filteredProducts = useMemo(() => {
-    const q = productQuery.trim().toLowerCase();
-    if (!q) return [];
-    return products
-      .filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [products, productQuery]);
+  const lookup = useProducts(productQuery);
+  const filteredProducts = productQuery.trim() ? lookup.products.slice(0, 8) : [];
 
   function addLine(p: Product) {
     setLines((prev) => {
@@ -91,6 +81,8 @@ export function AddQuotationClient() {
         return;
       }
       router.push("/sales/quotations");
+    } catch {
+      setError("Could not save the quotation. Check your connection and retry.");
     } finally {
       setSubmitting(false);
     }
@@ -128,7 +120,7 @@ export function AddQuotationClient() {
             </div>
             <div>
               <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">Valid Until</label>
-              <input
+              <input aria-label="Valid Until"
                 type="date"
                 value={validUntil}
                 onChange={(e) => setValidUntil(e.target.value)}
@@ -137,7 +129,7 @@ export function AddQuotationClient() {
             </div>
             <div>
               <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">Discount (Rs)</label>
-              <input
+              <input aria-label="Discount (Rs)"
                 type="number"
                 min="0"
                 step="0.01"
@@ -180,7 +172,8 @@ export function AddQuotationClient() {
           </div>
 
           <div className="border border-zinc-200 rounded-lg overflow-hidden">
-            <table className="w-full text-xs text-left">
+           <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-xs text-left">
               <thead className="bg-zinc-50 text-zinc-650 font-bold border-b border-zinc-150 uppercase tracking-wider text-xs">
                 <tr>
                   <th className="px-3 py-2.5">Product</th>
@@ -204,21 +197,19 @@ export function AddQuotationClient() {
                       {l.name} <span className="text-zinc-400 font-normal">({l.sku})</span>
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <input
-                        type="number"
+                      <NumberInput integer aria-label={`Quantity for ${l.name}`} 
                         min={1}
                         value={l.qty}
-                        onChange={(e) => updateLine(l.sku, "qty", Math.max(1, parseInt(e.target.value) || 1))}
+                        onValueChange={(value) => updateLine(l.sku, "qty", value)}
                         className="h-8 w-20 rounded border border-zinc-300 px-2 text-center font-mono outline-none focus:border-indigo-500"
                       />
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <input
-                        type="number"
+                      <NumberInput aria-label={`Price for ${l.name}`} 
                         min={0}
                         step="0.01"
                         value={l.unitPrice}
-                        onChange={(e) => updateLine(l.sku, "unitPrice", Math.max(0, parseFloat(e.target.value) || 0))}
+                        onValueChange={(value) => updateLine(l.sku, "unitPrice", value)}
                         className="h-8 w-28 rounded border border-zinc-300 px-2 text-right font-mono outline-none focus:border-indigo-500"
                       />
                     </td>
@@ -234,6 +225,7 @@ export function AddQuotationClient() {
                 ))}
               </tbody>
             </table>
+           </div>
           </div>
 
           <div className="flex justify-end border-t pt-3 gap-6 text-sm">

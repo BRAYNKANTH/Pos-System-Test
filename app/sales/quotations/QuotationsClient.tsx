@@ -100,7 +100,7 @@ export function QuotationsClient({ initialQuotations }: { initialQuotations: Quo
                   <td className="px-4 py-3.5 font-bold text-zinc-800">{q.customerName}</td>
                   <td className="px-4 py-3.5 text-center text-zinc-600">{q.itemCount}</td>
                   <td className="px-4 py-3.5">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold capitalize ${STATUS_STYLES[q.status] ?? "bg-zinc-100 text-zinc-700"}`}>
+                    <span className={`px-2 py-0.5 rounded text-[12px] font-bold capitalize ${STATUS_STYLES[q.status] ?? "bg-zinc-100 text-zinc-700"}`}>
                       {q.status}
                     </span>
                   </td>

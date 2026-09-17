@@ -146,59 +146,64 @@ export default function DashboardClient({
       {/* Main View Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Navbar */}
-        <header className="h-16 bg-indigo-900 text-white px-5 flex items-center justify-between border-b shadow-sm shrink-0">
-          <div className="flex items-center gap-3">
+        <header className="h-16 bg-indigo-900 text-white px-3 sm:px-5 flex items-center justify-between gap-2 border-b shadow-sm shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="h-9 w-9 flex items-center justify-center hover:bg-white/10 rounded lg:hidden text-white transition"
+              className="h-9 w-9 flex items-center justify-center hover:bg-white/10 rounded lg:hidden text-white transition shrink-0"
               title="Menu Drawer"
             >
               <Menu className="h-5 w-5" />
             </button>
 
-            <span className="font-bold text-base lg:hidden">{businessName}</span>
+            <span className="font-bold text-lg lg:hidden truncate min-w-0">{businessName}</span>
 
-            <div className="hidden lg:flex items-center gap-2 text-sm font-semibold">
-              <span className="text-zinc-300">Location:</span>
-              <span className="bg-white/10 px-2.5 py-1 rounded text-white text-xs">
+            <div className="hidden lg:flex items-center gap-2 text-base font-semibold min-w-0">
+              <span className="text-zinc-300 shrink-0">Location:</span>
+              <span className="bg-white/10 px-3 py-1.5 rounded text-white text-sm truncate">
                 {businessName || "Main Register Store"}
               </span>
             </div>
 
-            <div className="bg-white/10 px-2.5 py-1 rounded text-white text-xs font-bold font-mono flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5 text-indigo-300" />
+            <div className="hidden sm:flex bg-white/10 px-3 py-1.5 rounded text-white text-sm font-bold font-mono items-center gap-1.5 shrink-0">
+              <Calendar className="h-4 w-4 text-indigo-300" />
               {currentDate}
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* Both duplicate a destination already one tap away below in
+                the Quick Actions grid — trimmed on mobile to leave room
+                for the business name and the one action (POS) worth
+                keeping in the header itself at that width. */}
             <Link
               href="/purchases/add"
               aria-label="Add new purchase"
-              className="h-8 w-8 hover:bg-white/10 rounded flex items-center justify-center text-zinc-300 hover:text-white transition"
+              className="hidden sm:flex h-10 w-10 hover:bg-white/10 rounded items-center justify-center text-zinc-300 hover:text-white transition"
             >
-              <Plus className="h-4.5 w-4.5" />
+              <Plus className="h-5 w-5" />
             </Link>
             <Link
               href="/pos"
               aria-label="Open POS terminal"
-              className="h-8 w-8 hover:bg-white/10 rounded flex items-center justify-center text-zinc-300 hover:text-white transition"
+              className="hidden sm:flex h-10 w-10 hover:bg-white/10 rounded items-center justify-center text-zinc-300 hover:text-white transition"
             >
-              <Calculator className="h-4.5 w-4.5" />
+              <Calculator className="h-5 w-5" />
             </Link>
 
             <Link
               href="/pos"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+              aria-label="Open POS terminal"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 sm:px-4 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition"
             >
-              <Grid className="h-4 w-4" />
-              POS Terminal
+              <Grid className="h-4.5 w-4.5" />
+              <span className="hidden sm:inline">POS Terminal</span>
             </Link>
 
-            <div className="flex items-center gap-2 pl-2">
-              <span className="text-xs font-semibold text-zinc-300 hidden sm:inline">{user.name}</span>
-              <div className="h-8 w-8 rounded-full bg-indigo-750 flex items-center justify-center text-xs font-bold text-white border border-white/10">
-                <User className="h-4 w-4" />
+            <div className="flex items-center gap-2.5 pl-1 sm:pl-2">
+              <span className="text-sm font-semibold text-zinc-300 hidden sm:inline">{user.name}</span>
+              <div className="h-10 w-10 rounded-full bg-indigo-750 flex items-center justify-center text-sm font-bold text-white border border-white/10 shrink-0">
+                <User className="h-4.5 w-4.5" />
               </div>
             </div>
           </div>
@@ -210,12 +215,12 @@ export default function DashboardClient({
           <div className="flex items-center justify-between gap-4 flex-wrap bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs">
             <div>
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wide bg-indigo-50 text-indigo-700 border border-indigo-200">
+                <span className="px-3 py-1 rounded-full text-sm font-extrabold uppercase tracking-wide bg-indigo-50 text-indigo-700 border border-indigo-200">
                   Daily Review Active
                 </span>
-                <span className="text-xs text-zinc-400 font-mono">{currentDate}</span>
+                <span className="text-sm text-zinc-500 font-mono">{currentDate}</span>
               </div>
-              <h1 className="text-xl font-extrabold text-zinc-900 mt-1">
+              <h1 className="text-2xl font-extrabold text-zinc-900 mt-1.5">
                 {dateRange === "today" ? "Today's Sales & Daily Terminal Review" : "Cumulative Business Performance"}
               </h1>
             </div>
@@ -225,7 +230,7 @@ export default function DashboardClient({
               <button
                 type="button"
                 onClick={() => setDateRange("today")}
-                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition ${
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition ${
                   dateRange === "today"
                     ? "bg-white text-indigo-650 shadow-xs border border-zinc-200"
                     : "text-zinc-600 hover:text-zinc-900"
@@ -236,7 +241,7 @@ export default function DashboardClient({
               <button
                 type="button"
                 onClick={() => setDateRange("all_time")}
-                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition ${
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition ${
                   dateRange === "all_time"
                     ? "bg-white text-indigo-650 shadow-xs border border-zinc-200"
                     : "text-zinc-600 hover:text-zinc-900"
@@ -254,12 +259,12 @@ export default function DashboardClient({
               className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl p-5 flex items-center justify-between shadow-xs transition"
             >
               <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-lg bg-white/10 flex items-center justify-center">
-                  <ShoppingCart className="h-5.5 w-5.5" />
+                <div className="h-12 w-12 rounded-lg bg-white/10 flex items-center justify-center">
+                  <ShoppingCart className="h-6 w-6" />
                 </div>
-                <span className="font-bold text-sm">Add Sale (POS)</span>
+                <span className="font-bold text-base">Add Sale (POS)</span>
               </div>
-              <ArrowRight className="h-4.5 w-4.5 opacity-70" />
+              <ArrowRight className="h-5 w-5 opacity-70" />
             </Link>
 
             <Link
@@ -267,12 +272,12 @@ export default function DashboardClient({
               className="bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl p-5 flex items-center justify-between shadow-xs transition"
             >
               <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-lg bg-white/10 flex items-center justify-center">
-                  <Download className="h-5.5 w-5.5" />
+                <div className="h-12 w-12 rounded-lg bg-white/10 flex items-center justify-center">
+                  <Download className="h-6 w-6" />
                 </div>
-                <span className="font-bold text-sm">Add Purchase Order</span>
+                <span className="font-bold text-base">Add Purchase Order</span>
               </div>
-              <ArrowRight className="h-4.5 w-4.5 opacity-70" />
+              <ArrowRight className="h-5 w-5 opacity-70" />
             </Link>
 
             <Link
@@ -280,12 +285,12 @@ export default function DashboardClient({
               className="bg-blue-700 hover:bg-blue-800 text-white rounded-xl p-5 flex items-center justify-between shadow-xs transition"
             >
               <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-lg bg-white/10 flex items-center justify-center">
-                  <Package className="h-5.5 w-5.5" />
+                <div className="h-12 w-12 rounded-lg bg-white/10 flex items-center justify-center">
+                  <Package className="h-6 w-6" />
                 </div>
-                <span className="font-bold text-sm">Products Catalog</span>
+                <span className="font-bold text-base">Products Catalog</span>
               </div>
-              <ArrowRight className="h-4.5 w-4.5 opacity-70" />
+              <ArrowRight className="h-5 w-5 opacity-70" />
             </Link>
 
             <Link
@@ -293,12 +298,12 @@ export default function DashboardClient({
               className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl p-5 flex items-center justify-between shadow-xs transition"
             >
               <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-lg bg-white/10 flex items-center justify-center">
-                  <FileText className="h-5.5 w-5.5" />
+                <div className="h-12 w-12 rounded-lg bg-white/10 flex items-center justify-center">
+                  <FileText className="h-6 w-6" />
                 </div>
-                <span className="font-bold text-sm">Profit / Loss Report</span>
+                <span className="font-bold text-base">Profit / Loss Report</span>
               </div>
-              <ArrowRight className="h-4.5 w-4.5 opacity-70" />
+              <ArrowRight className="h-5 w-5 opacity-70" />
             </Link>
           </div>
 
@@ -306,16 +311,16 @@ export default function DashboardClient({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Sales */}
             <div className="bg-white rounded-2xl border border-zinc-200 p-5 flex items-center gap-4.5 shadow-xs">
-              <div className="h-14 w-14 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
-                <ShoppingCart className="h-6 w-6" />
+              <div className="h-16 w-16 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
+                <ShoppingCart className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                <p className="text-sm font-bold text-zinc-600 uppercase tracking-wider">
                   {dateRange === "today" ? "Today's Sales" : "Total Sales"}
                 </p>
-                <p className="text-xl font-extrabold font-mono mt-0.5 text-zinc-900">{fmt(activeSales)}</p>
+                <p className="text-2xl font-extrabold font-mono mt-0.5 text-zinc-900">{fmt(activeSales)}</p>
                 {dateRange === "today" && (
-                  <p className="text-[11px] font-semibold text-emerald-600 mt-0.5">
+                  <p className="text-sm font-semibold text-emerald-600 mt-0.5">
                     {stats.todayOrderCount} orders completed today
                   </p>
                 )}
@@ -324,41 +329,41 @@ export default function DashboardClient({
 
             {/* Net Revenue */}
             <div className="bg-white rounded-2xl border border-zinc-200 p-5 flex items-center gap-4.5 shadow-xs">
-              <div className="h-14 w-14 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
-                <TrendingUp className="h-6 w-6" />
+              <div className="h-16 w-16 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
+                <TrendingUp className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                <p className="text-sm font-bold text-zinc-600 uppercase tracking-wider">
                   {dateRange === "today" ? "Today's Net Revenue" : "Net Revenue"}
                 </p>
-                <p className="text-xl font-extrabold font-mono mt-0.5 text-zinc-900">{fmt(activeNetRevenue)}</p>
-                <p className="text-[11px] font-medium text-zinc-500 mt-0.5">Before taxes &amp; shipping</p>
+                <p className="text-2xl font-extrabold font-mono mt-0.5 text-zinc-900">{fmt(activeNetRevenue)}</p>
+                <p className="text-sm font-medium text-zinc-500 mt-0.5">Before taxes &amp; shipping</p>
               </div>
             </div>
 
             {/* Total Purchases */}
             <div className="bg-white rounded-2xl border border-zinc-200 p-5 flex items-center gap-4.5 shadow-xs">
-              <div className="h-14 w-14 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100">
-                <Download className="h-6 w-6" />
+              <div className="h-16 w-16 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100">
+                <Download className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                <p className="text-sm font-bold text-zinc-600 uppercase tracking-wider">
                   {dateRange === "today" ? "Today's Purchases" : "Total Purchases"}
                 </p>
-                <p className="text-xl font-extrabold font-mono mt-0.5 text-zinc-900">{fmt(activePurchases)}</p>
-                <p className="text-[11px] font-medium text-zinc-500 mt-0.5">Supplier goods received</p>
+                <p className="text-2xl font-extrabold font-mono mt-0.5 text-zinc-900">{fmt(activePurchases)}</p>
+                <p className="text-sm font-medium text-zinc-500 mt-0.5">Supplier goods received</p>
               </div>
             </div>
 
             {/* Invoice Due */}
             <div className="bg-white rounded-2xl border border-zinc-200 p-5 flex items-center gap-4.5 shadow-xs">
-              <div className="h-14 w-14 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-100">
-                <AlertTriangle className="h-6 w-6" />
+              <div className="h-16 w-16 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-100">
+                <AlertTriangle className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Invoice Due</p>
-                <p className="text-xl font-extrabold font-mono mt-0.5 text-zinc-900">{fmt(stats.invoiceDue)}</p>
-                <p className="text-[11px] font-medium text-zinc-500 mt-0.5">Unpaid customer balances</p>
+                <p className="text-sm font-bold text-zinc-600 uppercase tracking-wider">Invoice Due</p>
+                <p className="text-2xl font-extrabold font-mono mt-0.5 text-zinc-900">{fmt(stats.invoiceDue)}</p>
+                <p className="text-sm font-medium text-zinc-500 mt-0.5">Unpaid customer balances</p>
               </div>
             </div>
           </div>
@@ -367,24 +372,24 @@ export default function DashboardClient({
           <div className="bg-white rounded-2xl border border-zinc-200 shadow-xs overflow-hidden">
             <div className="p-5 border-b border-zinc-150 bg-zinc-50/50 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Receipt className="h-5 w-5 text-indigo-650" />
+                <Receipt className="h-6 w-6 text-indigo-650" />
                 <div>
-                  <h3 className="font-extrabold text-sm text-zinc-900">
+                  <h3 className="font-extrabold text-base text-zinc-900">
                     Today&apos;s Sales Log ({currentDate})
                   </h3>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-sm text-zinc-500">
                     Sales completed during today&apos;s register shifts.
                   </p>
                 </div>
               </div>
-              <span className="text-xs font-extrabold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-150">
+              <span className="text-sm font-extrabold px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-150">
                 {todayTransactions.length} Sales Registered Today
               </span>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-zinc-50 text-zinc-650 font-bold border-b border-zinc-150 uppercase tracking-wider text-xs">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-zinc-50 text-zinc-700 font-bold border-b border-zinc-150 uppercase tracking-wider text-sm">
                   <tr>
                     <th className="px-4 py-3">Time</th>
                     <th className="px-4 py-3">Transaction ID</th>
@@ -396,14 +401,19 @@ export default function DashboardClient({
                     <th className="px-4 py-3 text-center">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-200/70 text-sm">
+                <tbody className="divide-y divide-zinc-200/70 text-base">
                   {todayTransactions.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-4 py-10 text-center text-zinc-400">
-                        <div className="flex flex-col items-center justify-center gap-1.5">
-                          <Clock className="h-7 w-7 text-zinc-300" />
+                        {/* sticky + centered-within-itself so this stays
+                            visible when the (wide, 8-column) table is
+                            horizontally scrolled on narrow screens —
+                            text-center alone centers within the full
+                            table width, which sits off-screen on mobile. */}
+                        <div className="sticky left-1/2 w-fit -translate-x-1/2 flex flex-col items-center justify-center gap-1.5">
+                          <Clock className="h-8 w-8 text-zinc-300" />
                           <p className="font-semibold text-zinc-600">No sales recorded yet today.</p>
-                          <p className="text-xs text-zinc-400">
+                          <p className="text-sm text-zinc-400">
                             Open the POS Terminal to start processing today&apos;s transactions.
                           </p>
                         </div>
@@ -412,7 +422,7 @@ export default function DashboardClient({
                   ) : (
                     todayTransactions.map((tx) => (
                       <tr key={tx.id} className="hover:bg-indigo-50/20 transition-colors">
-                        <td className="px-4 py-3 font-mono text-zinc-500 font-medium">{tx.time}</td>
+                        <td className="px-4 py-3 font-mono text-zinc-600 font-medium">{tx.time}</td>
                         <td className="px-4 py-3 font-mono font-bold text-indigo-650">{tx.id}</td>
                         <td className="px-4 py-3 font-bold text-zinc-800">{tx.customerName}</td>
                         <td className="px-4 py-3 text-zinc-600">{tx.cashierName}</td>
@@ -420,8 +430,8 @@ export default function DashboardClient({
                           {tx.paymentMethod.replace("_", " ")}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                            <CheckCircle2 className="h-3 w-3 text-emerald-600" /> {tx.status}
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> {tx.status}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right font-mono font-extrabold text-indigo-650">
@@ -430,7 +440,7 @@ export default function DashboardClient({
                         <td className="px-4 py-3 text-center">
                           <Link
                             href={`/pos/receipt/${tx.id}`}
-                            className="text-xs font-bold text-indigo-650 hover:text-indigo-800 hover:underline"
+                            className="text-sm font-bold text-indigo-650 hover:text-indigo-800 hover:underline"
                           >
                             View Receipt &rarr;
                           </Link>
@@ -448,24 +458,24 @@ export default function DashboardClient({
             {/* Sales Due */}
             <div className="bg-white rounded-2xl border border-zinc-200 p-5 shadow-xs flex flex-col">
               <div className="flex items-center gap-2 mb-4 border-b border-zinc-150 pb-3">
-                <AlertTriangle className="h-5 w-5 text-amber-500" />
-                <h3 className="font-bold text-sm text-zinc-800">Unpaid Customer Invoices Due</h3>
+                <AlertTriangle className="h-5.5 w-5.5 text-amber-500" />
+                <h3 className="font-bold text-base text-zinc-800">Unpaid Customer Invoices Due</h3>
               </div>
 
               <div className="overflow-x-auto flex-1 border border-zinc-150 rounded-xl">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-zinc-50 text-zinc-500 font-bold uppercase border-b text-xs">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-zinc-50 text-zinc-700 font-bold uppercase border-b text-sm">
                     <tr>
-                      <th className="px-4 py-2.5">Customer</th>
-                      <th className="px-4 py-2.5">Invoice ID</th>
-                      <th className="px-4 py-2.5 text-right">Due Amount</th>
-                      <th className="px-4 py-2.5 text-center">Action</th>
+                      <th className="px-4 py-3">Customer</th>
+                      <th className="px-4 py-3">Invoice ID</th>
+                      <th className="px-4 py-3 text-right">Due Amount</th>
+                      <th className="px-4 py-3 text-center">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="text-sm divide-y divide-zinc-150">
+                  <tbody className="text-base divide-y divide-zinc-150">
                     {unpaidTransactions.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-zinc-450">
+                        <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
                           No unpaid customer invoices.
                         </td>
                       </tr>
@@ -480,7 +490,7 @@ export default function DashboardClient({
                           <td className="px-4 py-3 text-center">
                             <Link
                               href={`/pos/receipt/${tx.id}`}
-                              className="text-indigo-650 hover:underline font-bold text-xs"
+                              className="text-indigo-650 hover:underline font-bold text-sm"
                             >
                               View
                             </Link>
@@ -496,22 +506,22 @@ export default function DashboardClient({
             {/* Purchase Due */}
             <div className="bg-white rounded-2xl border border-zinc-200 p-5 shadow-xs flex flex-col">
               <div className="flex items-center gap-2 mb-4 border-b border-zinc-150 pb-3">
-                <AlertTriangle className="h-5 w-5 text-amber-500" />
-                <h3 className="font-bold text-sm text-zinc-800">Purchase Payment Accounts Due</h3>
+                <AlertTriangle className="h-5.5 w-5.5 text-amber-500" />
+                <h3 className="font-bold text-base text-zinc-800">Purchase Payment Accounts Due</h3>
               </div>
 
               <div className="overflow-x-auto flex-1 border border-zinc-150 rounded-xl">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-zinc-50 text-zinc-500 font-bold uppercase border-b text-xs">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-zinc-50 text-zinc-700 font-bold uppercase border-b text-sm">
                     <tr>
-                      <th className="px-4 py-2.5">Supplier</th>
-                      <th className="px-4 py-2.5">Reference No</th>
-                      <th className="px-4 py-2.5 text-right">Due Amount</th>
+                      <th className="px-4 py-3">Supplier</th>
+                      <th className="px-4 py-3">Reference No</th>
+                      <th className="px-4 py-3 text-right">Due Amount</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
-                      <td colSpan={3} className="px-4 py-8 text-center text-zinc-450">
+                      <td colSpan={3} className="px-4 py-8 text-center text-zinc-500 text-base">
                         No pending purchase dues recorded.
                       </td>
                     </tr>

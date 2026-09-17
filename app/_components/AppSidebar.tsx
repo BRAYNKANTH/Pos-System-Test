@@ -88,21 +88,25 @@ export function AppSidebar({
 
   // Memoized link renderer — avoids re-creating the function on every render.
   const navLink = useCallback(
-    (href: string, label: string, disabled?: boolean) => {
-      // Exact match for root, startsWith for everything else — ensures that
-      // /inventory/add-product correctly highlights the "List Products" parent
-      // section and the specific sub-link that matches.
-      const active = href === "/" ? pathname === href : pathname.startsWith(href);
+    (href: string, label: string, disabled?: boolean, exact?: boolean) => {
+      // Exact match for root (and any other link passing exact: true),
+      // startsWith for everything else — ensures that /inventory/add-product
+      // correctly highlights the "List Products" parent section and the
+      // specific sub-link that matches. exact is for a link whose href is a
+      // prefix of sibling links in the same group (e.g. "/reports" itself
+      // vs. "/reports/profit-loss") — without it, startsWith would mark it
+      // active on every one of those siblings too.
+      const active = href === "/" || exact ? pathname === href : pathname.startsWith(href);
 
       if (disabled) {
         return (
           <span
             key={href}
-            className="py-1 flex items-center gap-1.5 opacity-50 cursor-not-allowed select-none text-zinc-500"
+            className="py-1.5 flex items-center gap-1.5 opacity-50 cursor-not-allowed select-none text-zinc-500"
             title="Not yet implemented"
           >
             {label}
-            <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600">
+            <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wide text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600">
               soon
             </span>
           </span>
@@ -113,7 +117,7 @@ export function AppSidebar({
         <Link
           href={href}
           onClick={onNavigate}
-          className={`py-1 transition ${active ? "font-bold text-indigo-700 dark:text-indigo-400" : "hover:text-indigo-600 dark:hover:text-indigo-400"}`}
+          className={`py-1.5 transition ${active ? "font-bold text-indigo-700 dark:text-indigo-400" : "hover:text-indigo-600 dark:hover:text-indigo-400"}`}
         >
           {label}
         </Link>
@@ -126,35 +130,35 @@ export function AppSidebar({
     <div className="flex flex-col h-full justify-between bg-white dark:bg-zinc-950">
       <div>
         {/* Brand Header */}
-        <div className="h-16 flex items-center px-6 border-b border-zinc-200 dark:border-zinc-800 gap-2 bg-indigo-900 text-white select-none">
-          <div className="h-2.5 w-2.5 rounded-full bg-green-400 animate-pulse shrink-0" />
-          <span className="font-bold text-lg tracking-tight truncate">{businessName}</span>
+        <div className="h-[72px] flex items-center px-6 border-b border-zinc-200 dark:border-zinc-800 gap-2.5 bg-indigo-900 text-white select-none">
+          <div className="h-3 w-3 rounded-full bg-green-400 animate-pulse shrink-0" />
+          <span className="font-bold text-xl tracking-tight truncate">{businessName}</span>
         </div>
 
         {/* Navigation */}
-        <nav className="p-4 space-y-1" aria-label="Main navigation">
+        <nav className="p-4 space-y-1.5" aria-label="Main navigation">
           <Link
             href="/"
             onClick={onNavigate}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-semibold transition ${
+            className={`flex items-center gap-3 px-3.5 py-3 rounded-md text-[15px] font-semibold transition ${
               pathname === "/"
                 ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400"
                 : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
             }`}
           >
-            <HomeIcon className="h-5 w-5 shrink-0" />
+            <HomeIcon className="h-[22px] w-[22px] shrink-0" />
             <span>Home</span>
           </Link>
 
           <details className="group" open={pathname.startsWith("/admin")}>
-            <summary className="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
+            <summary className="flex items-center justify-between px-3.5 py-3 rounded-md text-[15px] font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
               <div className="flex items-center gap-3">
-                <Users className="h-5 w-5 shrink-0" />
+                <Users className="h-[22px] w-[22px] shrink-0" />
                 <span>User Management</span>
               </div>
-              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
+              <ChevronDown className="h-[18px] w-[18px] transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
             </summary>
-            <div className="pl-4 pr-3 py-1 ml-[21px] flex flex-col gap-1.5 text-sm border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
+            <div className="pl-4 pr-3 py-1.5 ml-[25px] flex flex-col gap-2 text-[15px] border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
               {navLink("/admin/users", "Users")}
               {navLink("/admin/settings/roles", "Roles")}
             </div>
@@ -163,25 +167,25 @@ export function AppSidebar({
           <Link
             href="/customers"
             onClick={onNavigate}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-semibold transition ${
+            className={`flex items-center gap-3 px-3.5 py-3 rounded-md text-[15px] font-semibold transition ${
               pathname.startsWith("/customers")
                 ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400"
                 : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
             }`}
           >
-            <Contact className="h-5 w-5 shrink-0" />
+            <Contact className="h-[22px] w-[22px] shrink-0" />
             <span>Contacts</span>
           </Link>
 
           <details className="group" open={pathname.startsWith("/inventory")}>
-            <summary className="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
+            <summary className="flex items-center justify-between px-3.5 py-3 rounded-md text-[15px] font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
               <div className="flex items-center gap-3">
-                <Package className="h-5 w-5 shrink-0" />
+                <Package className="h-[22px] w-[22px] shrink-0" />
                 <span>Products</span>
               </div>
-              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
+              <ChevronDown className="h-[18px] w-[18px] transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
             </summary>
-            <div className="pl-4 pr-3 py-1 ml-[21px] flex flex-col gap-1.5 text-sm border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
+            <div className="pl-4 pr-3 py-1.5 ml-[25px] flex flex-col gap-2 text-[15px] border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
               {navLink("/inventory", "List Products")}
               {navLink("/inventory/add-product", "Add Product")}
               {navLink("/inventory/print-labels", "Print Labels")}
@@ -202,14 +206,14 @@ export function AppSidebar({
               pathname.startsWith("/inventory/stock-transfer")
             }
           >
-            <summary className="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
+            <summary className="flex items-center justify-between px-3.5 py-3 rounded-md text-[15px] font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
               <div className="flex items-center gap-3">
-                <History className="h-5 w-5 shrink-0" />
+                <History className="h-[22px] w-[22px] shrink-0" />
                 <span>Purchases</span>
               </div>
-              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
+              <ChevronDown className="h-[18px] w-[18px] transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
             </summary>
-            <div className="pl-4 pr-3 py-1 ml-[21px] flex flex-col gap-1.5 text-sm border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
+            <div className="pl-4 pr-3 py-1.5 ml-[25px] flex flex-col gap-2 text-[15px] border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
               {navLink("/purchases", "List Purchases")}
               {navLink("/purchases/add", "Add Purchase")}
               {navLink("/suppliers", "Suppliers")}
@@ -221,14 +225,14 @@ export function AppSidebar({
             className="group"
             open={pathname.startsWith("/sales") || pathname === "/pos"}
           >
-            <summary className="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
+            <summary className="flex items-center justify-between px-3.5 py-3 rounded-md text-[15px] font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
               <div className="flex items-center gap-3">
-                <ShoppingCart className="h-5 w-5 shrink-0" />
+                <ShoppingCart className="h-[22px] w-[22px] shrink-0" />
                 <span>Sell</span>
               </div>
-              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
+              <ChevronDown className="h-[18px] w-[18px] transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
             </summary>
-            <div className="pl-4 pr-3 py-1 ml-[21px] flex flex-col gap-1.5 text-sm border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
+            <div className="pl-4 pr-3 py-1.5 ml-[25px] flex flex-col gap-2 text-[15px] border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
               {navLink("/sales", "All sales")}
               {navLink("/pos", "POS")}
               {navLink("/sales/drafts", "List Drafts")}
@@ -240,26 +244,24 @@ export function AppSidebar({
               {navLink("/admin/gift-cards", "Gift Cards")}
               {navLink("/sales/import", "Import Sales")}
               {navLink("/orders", "Order Status Tracker")}
-              {/* Bills/bill-change-requests were only reachable from a
-                  cashier error toast ("Request a bill change from the
-                  Bills panel") that itself linked nowhere — there was no
-                  actual panel to land on. */}
               {navLink("/bills", "Bills")}
-              {navLink("/bills/requests", "My Bill Change Requests")}
-              {navLink("/admin/approvals/bills", "Bill Change Approvals")}
             </div>
           </details>
 
           <details className="group" open={pathname.startsWith("/reports")}>
-            <summary className="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
+            <summary className="flex items-center justify-between px-3.5 py-3 rounded-md text-[15px] font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
               <div className="flex items-center gap-3">
-                <BarChart3 className="h-5 w-5 shrink-0" />
+                <BarChart3 className="h-[22px] w-[22px] shrink-0" />
                 <span>Reports</span>
               </div>
-              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
+              <ChevronDown className="h-[18px] w-[18px] transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
             </summary>
             {/* Reports sub-links use text-sm (was text-xs — inconsistent with all other groups) */}
-            <div className="pl-4 pr-3 py-1 ml-[21px] flex flex-col gap-1.5 text-sm border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
+            <div className="pl-4 pr-3 py-1.5 ml-[25px] flex flex-col gap-2 text-[15px] border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
+              {/* Landing page for every report below, plus the Z-Report,
+                  Sales Trends, and Audit Report — those three otherwise had
+                  no path here at all, only reachable by typing the URL. */}
+              {navLink("/reports", "All Reports Overview", false, true)}
               {navLink("/reports/profit-loss", "Profit / Loss Report")}
               {navLink("/reports/purchase-sale", "Purchase & Sale")}
               {navLink("/reports/tax", "Tax Report")}
@@ -282,20 +284,21 @@ export function AppSidebar({
           </details>
 
           <details className="group" open={pathname.startsWith("/admin/settings")}>
-            <summary className="flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
+            <summary className="flex items-center justify-between px-3.5 py-3 rounded-md text-[15px] font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 transition list-none cursor-pointer">
               <div className="flex items-center gap-3">
-                <Settings className="h-5 w-5 shrink-0" />
+                <Settings className="h-[22px] w-[22px] shrink-0" />
                 <span>Settings</span>
               </div>
-              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
+              <ChevronDown className="h-[18px] w-[18px] transition-transform group-open:rotate-180 text-zinc-400 shrink-0" />
             </summary>
-            <div className="pl-4 pr-3 py-1 ml-[21px] flex flex-col gap-1.5 text-sm border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
+            <div className="pl-4 pr-3 py-1.5 ml-[25px] flex flex-col gap-2 text-[15px] border-l border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">
               {navLink("/admin/settings/business", "Business Settings")}
               {navLink("/admin/settings/locations", "Business Locations")}
               {navLink("/admin/settings/invoice", "Invoice Settings")}
               {navLink("/admin/settings/barcode", "Barcode Settings")}
               {navLink("/admin/settings/printers", "Receipt Printers")}
               {navLink("/admin/settings/tax", "Tax Rates")}
+              {navLink("/admin/settings/thresholds", "Approval Thresholds")}
               {isModuleEnabled("zoho") && navLink("/admin/settings/integrations", "Zoho Integration")}
               {isModuleEnabled("zoho") && navLink("/admin/sync-status", "Zoho Sync Status")}
               {navLink("/admin/settings/roles", "Roles")}
@@ -305,10 +308,10 @@ export function AppSidebar({
       </div>
 
       {/* User Footer */}
-      <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-sm text-zinc-500">
+      <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[15px] text-zinc-500">
         <p className="font-bold text-zinc-700 dark:text-zinc-300">{user?.name ?? "ADMIN"}</p>
         {user?.role && (
-          <p className="capitalize text-xs font-semibold mt-0.5 text-zinc-500 dark:text-zinc-400">
+          <p className="capitalize text-sm font-semibold mt-0.5 text-zinc-500 dark:text-zinc-400">
             {user.role.toLowerCase()}
           </p>
         )}

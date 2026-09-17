@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCartStore } from "@/lib/pos/cart-store";
+import { Modal } from "@/components/ui/modal";
+import { NumberInput } from "@/components/ui/number-input";
 import { Button } from "@/components/ui/button";
 import { queueOfflineTransaction } from "@/lib/offline/sync";
 import { Banknote, CreditCard, Wallet, Trash2, Plus, X, Printer } from "lucide-react";
 
 type PaymentTender = {
-  method: "cash" | "card" | "wallet" | "gift_card";
+  method: "cash" | "card" | "wallet" | "gift_card" | "store_credit";
   amount: number;
   note?: string;
 };
@@ -57,6 +59,8 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
   const [submitting, setSubmitting] = useState(false);
 
   const [completedTxId, setCompletedTxId] = useState<string | null>(null);
+  const [receiptError, setReceiptError] = useState("");
+  const [receiptAttempt, setReceiptAttempt] = useState(0);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
 
@@ -67,6 +71,23 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
   const [giftCardChecks, setGiftCardChecks] = useState<
     Record<number, { checking: boolean; ok: boolean | null; message: string }>
   >({});
+
+  // The selected customer's available store credit (credit note) balance
+  // — fetched fresh whenever the modal opens with a customer on the cart,
+  // so the "Store Credit" tender option can show/cap against a real
+  // number instead of a blind text entry (unlike gift cards, there's no
+  // code to type: it's just this customer's own account balance).
+  const [storeCreditBalance, setStoreCreditBalance] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open || !customerId) {
+      setStoreCreditBalance(null);
+      return;
+    }
+    fetch(`/api/customers/${encodeURIComponent(customerId)}/store-credits`)
+      .then((r) => r.json())
+      .then((res) => setStoreCreditBalance(res.success ? res.data.availableBalance : 0))
+      .catch(() => setStoreCreditBalance(0));
+  }, [open, customerId]);
 
   async function checkGiftCard(index: number) {
     const code = tenders[index]?.note?.trim();
@@ -108,11 +129,11 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
   // the remaining balance) that the cashier hasn't actually typed into
   // yet. The first keystroke into one of these should replace the
   // suggestion, not land after it — see the amount input's onChange.
-  const freshTenderRef = useRef<Set<number>>(new Set([0]));
+  const submittingRef = useRef(false);
+  const attemptRef = useRef<{ signature: string; key: string } | null>(null);
   useEffect(() => {
     if (open && !wasOpenRef.current) {
       setTenders([{ method: "cash", amount: total }]);
-      freshTenderRef.current = new Set([0]);
       setSellNote("");
       setStaffNote("");
       setError(null);
@@ -129,23 +150,30 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
     // resolves.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingReceipt(true);
-    fetch(`/api/pos/receipt/${completedTxId}`)
+    const controller = new AbortController();
+    setReceiptError("");
+    fetch(`/api/pos/receipt/${completedTxId}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((res) => {
-        if (res.success) setReceiptData(res.data);
+        if (!res.success) throw new Error(res.error?.message ?? "Receipt unavailable");
+        setReceiptData(res.data);
       })
-      .catch((err) => console.error("Failed to load receipt details:", err))
-      .finally(() => setLoadingReceipt(false));
-  }, [completedTxId]);
+      .catch(() => { if (!controller.signal.aborted) setReceiptError("Sale saved, but the receipt could not be loaded."); })
+      .finally(() => { if (!controller.signal.aborted) setLoadingReceipt(false); });
+    return () => controller.abort();
+  }, [completedTxId, receiptAttempt]);
 
   const totalPaying = Math.round(tenders.reduce((sum, t) => sum + Number(t.amount || 0), 0) * 100) / 100;
   const balance = Math.max(0, Math.round((total - totalPaying) * 100) / 100);
   const changeReturn = Math.max(0, Math.round((totalPaying - total) * 100) / 100);
+  const storeCreditTendered = Math.round(
+    tenders.filter((t) => t.method === "store_credit").reduce((sum, t) => sum + Number(t.amount || 0), 0) * 100,
+  ) / 100;
+  const storeCreditExceedsBalance = storeCreditBalance !== null && storeCreditTendered > storeCreditBalance;
 
   function addPaymentRow() {
     // Default the next row's amount to the remaining balance
     setTenders((prev) => {
-      freshTenderRef.current.add(prev.length);
       return [...prev, { method: "cash", amount: balance }];
     });
   }
@@ -168,6 +196,8 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
   }
 
   async function handleFinalize() {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     setSubmitting(true);
 
@@ -201,9 +231,14 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
       })),
       sellNote,
       staffNote,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: "",
+      heldCartId,
+      expectedTotal: total,
     };
 
+    const signature = JSON.stringify(checkoutPayload);
+    if (attemptRef.current?.signature !== signature) attemptRef.current = { signature, key: crypto.randomUUID() };
+    checkoutPayload.idempotencyKey = attemptRef.current.key;
     try {
       const res = await fetch("/api/pos/checkout", {
         method: "POST",
@@ -233,12 +268,8 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
         return;
       }
 
-      // If this was a resumed held cart, delete the original draft from the database
-      if (heldCartId) {
-        await fetch(`/api/pos/held-carts/${heldCartId}`, { method: "DELETE" }).catch(() => {});
-      }
-
       clear();
+      window.dispatchEvent(new Event("pos-stock-changed"));
       // Show receipt preview instead of instantly redirecting
       setCompletedTxId(body.data.transactionId);
     } catch (err) {
@@ -253,13 +284,9 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
           shipping: checkoutPayload.shipping,
           customerId: checkoutPayload.customerId,
           registerId: "register-1",
+          heldCartId,
+          expectedTotal: total,
         });
-
-        // Delete from held carts if it succeeded offline
-        if (heldCartId) {
-          // just try to delete if possible, otherwise offline sync will do it
-          fetch(`/api/pos/held-carts/${heldCartId}`, { method: "DELETE" }).catch(() => {});
-        }
 
         clear();
         onClose();
@@ -268,28 +295,12 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
         setError("Network is down and could not save transaction locally. Please check IndexedDB permissions.");
       }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
-  // Keyboard listener inside payment modal
-  useEffect(() => {
-    if (!open || completedTxId) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !submitting) {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "Enter" && !e.shiftKey && !submitting && totalPaying >= total && total > 0) {
-        const activeTag = document.activeElement?.tagName.toLowerCase();
-        if (activeTag !== "textarea") {
-          e.preventDefault();
-          handleFinalize();
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, completedTxId, submitting, totalPaying, total]);
+  // Payment submits only from its explicit button; Enter in fields edits the field.
 
   // This must come after every hook (useState/useRef/useEffect above) and
   // before any plain logic that doesn't need to run while closed. It used
@@ -309,19 +320,16 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
   // should still replace rather than land after it.
   function handleSetExactCash() {
     setTenders([{ method: "cash", amount: total }]);
-    freshTenderRef.current = new Set([0]);
   }
 
   function handleAddCashDenomination(addAmount: number) {
     const current = Number(tenders[0]?.amount || 0);
     setTenders([{ method: "cash", amount: Math.round((current + addAmount) * 100) / 100 }]);
-    freshTenderRef.current = new Set([0]);
   }
 
   function handleSetRoundCash(roundTo: number) {
     const rounded = Math.ceil(total / roundTo) * roundTo;
     setTenders([{ method: "cash", amount: rounded }]);
-    freshTenderRef.current = new Set([0]);
   }
 
   // Render the Receipt Preview Modal overlay on successful payment completion
@@ -330,15 +338,15 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
     const changePaid = receiptData ? Math.max(0, tendersTotal - receiptData.total) : 0;
 
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in print:p-0 print:bg-white backdrop-blur-xs">
-        <div className="flex w-full max-w-md flex-col rounded-xl bg-zinc-50 border border-zinc-200 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden print:w-full print:border-0 print:shadow-none">
+      <Modal open={open} onClose={handleNewSale} title="Sale receipt" unstyled className="max-w-lg">
+        <div className="flex w-full max-w-lg flex-col rounded-xl bg-zinc-50 border border-zinc-200 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden print:w-full print:border-0 print:shadow-none">
           
           <div className="flex items-center justify-between border-b bg-white px-5 py-3.5 dark:bg-zinc-950 print:hidden">
             <div className="flex items-center gap-2">
               <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
               <h3 className="font-bold text-sm text-zinc-900 dark:text-zinc-100">Transaction Successful</h3>
             </div>
-            <button onClick={handleNewSale} className="rounded-lg hover:bg-zinc-100 p-1.5 dark:hover:bg-zinc-800 text-zinc-500 transition">
+            <button aria-label="Close receipt" onClick={handleNewSale} className="rounded-lg hover:bg-zinc-100 p-1.5 dark:hover:bg-zinc-800 text-zinc-500 transition">
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -351,6 +359,7 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
               </div>
             )}
 
+            {receiptError && <p role="alert">{receiptError} <button onClick={() => setReceiptAttempt(n => n + 1)} className="underline">Retry receipt</button></p>}
             {!loadingReceipt && receiptData && (
               <div className="printable-receipt bg-white text-zinc-950 border border-zinc-200 p-5 rounded-lg shadow-sm font-mono text-[11px] leading-relaxed w-[310px] select-none dark:bg-white dark:text-zinc-950 print:border-0 print:shadow-none print:w-[80mm] print:p-2">
                 {/* Header */}
@@ -506,12 +515,12 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
           </div>
 
         </div>
-      </div>
+      </Modal>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in backdrop-blur-xs">
+    <Modal open={open} onClose={onClose} closeDisabled={submitting} title="Payment" unstyled className="max-w-4xl">
       <div className="flex w-full max-w-4xl flex-col rounded-2xl bg-white shadow-2xl dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 overflow-hidden md:flex-row max-h-[92vh]">
         
         {/* Left Side: Forms & Denominations */}
@@ -525,8 +534,9 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                 <p className="text-xs text-zinc-400 mt-0.5">Enter tender amounts or select fast cash shortcuts</p>
               </div>
               <button
-                onClick={onClose}
+                aria-label="Close payment"
                 disabled={submitting}
+                onClick={onClose}
                 className="rounded-lg hover:bg-zinc-100 p-1.5 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
                 title="Close (Esc)"
               >
@@ -536,7 +546,7 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
 
             {/* Fast Cash Quick Denominations */}
             <div className="mb-5 rounded-xl bg-indigo-50/60 p-3.5 border border-indigo-100 dark:bg-indigo-950/20 dark:border-indigo-900/40">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400 block mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400 block mb-2">
                 ⚡ Fast Cash Shortcuts:
               </span>
               <div className="flex flex-wrap gap-2">
@@ -602,9 +612,10 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                   <div className="flex flex-col gap-3 md:flex-row md:items-center">
                     {/* Payment Method Selector */}
                     <div className="w-full md:w-44 flex flex-col gap-1">
-                      <label className="text-[11px] font-bold text-zinc-500">Method</label>
+                      <label className="text-xs font-bold text-zinc-500">Method</label>
                       <div className="relative">
                         <select
+                          aria-label={`Payment method ${index + 1}`}
                           value={tender.method}
                           onChange={(e) => updateTender(index, "method", e.target.value as PaymentTender["method"])}
                           className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm font-semibold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800 capitalize"
@@ -613,51 +624,24 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                           <option value="card">💳 Card</option>
                           <option value="wallet">📱 Digital Wallet</option>
                           <option value="gift_card">🎁 Gift Card / Voucher</option>
+                          <option value="store_credit" disabled={!customerId}>
+                            🧾 Store Credit{customerId ? "" : " (select a customer first)"}
+                          </option>
                         </select>
                       </div>
                     </div>
 
                     {/* Amount Input */}
                     <div className="flex-1 flex flex-col gap-1">
-                      <label className="text-[11px] font-bold text-zinc-500">Tender Amount (Rs)</label>
+                      <label className="text-xs font-bold text-zinc-500">Tender Amount (Rs)</label>
                       <div className="relative">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                        <NumberInput
+                          aria-label={`Tender amount for payment ${index + 1}`}
+                          min={0}
+                          emptyValue={0}
                           autoFocus={index === 0}
-                          value={tender.amount === 0 ? "" : tender.amount}
-                          onChange={(e) => {
-                            let raw = e.target.value;
-                            // The field opens pre-filled with a suggested
-                            // amount (the exact total, a Fast Cash preset,
-                            // or the remaining balance on a new split row)
-                            // — typing the customer's actual cash amount
-                            // used to land after that suggestion instead
-                            // of replacing it, e.g. typing "2000" over a
-                            // prefilled "1980" produced "19802000".
-                            // Select-on-focus looked like the fix, but
-                            // .select() is racy specifically for the
-                            // autoFocus-triggered initial focus (fires
-                            // before the browser's own focus/caret
-                            // handling settles, so it can silently no-op —
-                            // and deferring it a tick doesn't reliably
-                            // help either, since fast/synthetic typing can
-                            // outrun the deferral). This instead detects
-                            // the actual symptom directly: on this row's
-                            // first edit since the value was auto-filled,
-                            // if what the browser reports is that old
-                            // suggestion with new digits appended after
-                            // it, keep only the appended part.
-                            if (freshTenderRef.current.has(index)) {
-                              freshTenderRef.current.delete(index);
-                              const prevStr = tender.amount === 0 ? "" : String(tender.amount);
-                              if (prevStr && raw.startsWith(prevStr) && raw.length > prevStr.length) {
-                                raw = raw.slice(prevStr.length);
-                              }
-                            }
-                            updateTender(index, "amount", Number(raw));
-                          }}
+                          value={tender.amount}
+                          onValueChange={(amount) => updateTender(index, "amount", amount)}
                           placeholder="0.00"
                           className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-base font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-800 font-mono tabular-nums text-zinc-900 dark:text-white"
                         />
@@ -684,9 +668,10 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                   {tender.method === "gift_card" && (
                     <div className="flex flex-col gap-2 md:flex-row md:items-end">
                       <div className="flex-1 flex flex-col gap-1">
-                        <label className="text-[11px] font-bold text-zinc-500">Voucher Code</label>
+                        <label className="text-xs font-bold text-zinc-500">Voucher Code</label>
                         <input
                           type="text"
+                          aria-label={`Voucher code ${index + 1}`}
                           value={tender.note ?? ""}
                           onChange={(e) => {
                             updateTender(index, "note", e.target.value.toUpperCase());
@@ -715,6 +700,36 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                       )}
                     </div>
                   )}
+
+                  {/* Store Credit balance — no code to enter, just the
+                      selected customer's own account balance; caps here
+                      are advisory (checkout re-validates the live balance
+                      for real before charging it). */}
+                  {tender.method === "store_credit" && (
+                    <div className="flex items-center justify-between gap-2 rounded-lg bg-indigo-50/70 border border-indigo-100 px-3 py-2 dark:bg-indigo-950/20 dark:border-indigo-900/40">
+                      {storeCreditBalance === null ? (
+                        <span className="text-xs font-semibold text-zinc-500">Loading balance…</span>
+                      ) : (
+                        <>
+                          <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400">
+                            Available Store Credit: Rs {storeCreditBalance.toFixed(2)}
+                          </span>
+                          {tender.amount > storeCreditBalance && (
+                            <span className="text-xs font-bold text-red-600">Exceeds balance</span>
+                          )}
+                          {storeCreditBalance > 0 && tender.amount !== storeCreditBalance && (
+                            <button
+                              type="button"
+                              onClick={() => updateTender(index, "amount", Math.min(storeCreditBalance, balance + tender.amount))}
+                              className="text-xs font-bold text-indigo-650 hover:underline"
+                            >
+                              Use Max
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
 
@@ -733,7 +748,7 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                 <label className="text-xs font-semibold text-zinc-500">Sell Note (Receipt):</label>
                 <input
                   type="text"
-                  value={sellNote}
+                  aria-label="Receipt note" value={sellNote}
                   onChange={(e) => setSellNote(e.target.value)}
                   placeholder="Optional customer/order memo"
                   className="h-9 rounded-lg border border-zinc-200 bg-white px-3 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-850"
@@ -743,7 +758,7 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
                 <label className="text-xs font-semibold text-zinc-500">Staff Note (Internal):</label>
                 <input
                   type="text"
-                  value={staffNote}
+                  aria-label="Internal staff note" value={staffNote}
                   onChange={(e) => setStaffNote(e.target.value)}
                   placeholder="Internal audit note"
                   className="h-9 rounded-lg border border-zinc-200 bg-white px-3 text-xs outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-850"
@@ -755,8 +770,8 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
           </div>
 
           <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-xs text-zinc-400">
-            <span>Press <kbd className="rounded border bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">Enter</kbd> to finalize</span>
-            <span>Press <kbd className="rounded border bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">Esc</kbd> to return</span>
+            <span>Press <kbd className="rounded border bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">Enter</kbd> to finalize</span>
+            <span>Press <kbd className="rounded border bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">Esc</kbd> to return</span>
           </div>
         </div>
 
@@ -804,12 +819,12 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
 
           <div className="mt-8 flex flex-col gap-2.5">
             <button
-              disabled={submitting || totalPaying < total || total === 0}
+              disabled={submitting || totalPaying < total || total === 0 || storeCreditExceedsBalance}
               onClick={handleFinalize}
-              className="h-12 w-full rounded-xl bg-emerald-500 hover:bg-emerald-600 text-sm font-extrabold text-white transition shadow-lg uppercase tracking-wide disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="h-12 w-full rounded-xl bg-emerald-700 hover:bg-emerald-800 text-sm font-extrabold text-white transition shadow-lg uppercase tracking-wide disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <Banknote className="h-5 w-5" />
-              {submitting ? "Finalizing Sale…" : `Finalize & Print (Enter)`}
+              {submitting ? "Finalizing Sale…" : `Complete Sale`}
             </button>
             <button
               onClick={onClose}
@@ -822,6 +837,6 @@ export function PaymentModal({ open, onClose, total, totalItems }: PaymentModalP
         </div>
 
       </div>
-    </div>
+    </Modal>
   );
 }

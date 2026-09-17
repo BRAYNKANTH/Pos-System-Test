@@ -15,22 +15,30 @@ export async function GET(req: NextRequest) {
   if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
 
   const query = req.nextUrl.searchParams.get("query")?.trim() ?? "";
+  const exact = req.nextUrl.searchParams.get("exact") === "1";
+  const limit = Math.floor(Math.min(500, Math.max(1, Number(req.nextUrl.searchParams.get("limit")) || 500)));
+  const rawOffset = Number(req.nextUrl.searchParams.get("offset"));
+  const offset = Number.isFinite(rawOffset) ? Math.max(0, Math.floor(rawOffset)) : 0;
+  const category = req.nextUrl.searchParams.get("category") || undefined;
+  const brand = req.nextUrl.searchParams.get("brand") || undefined;
 
   const items = await prisma.inventoryItem.findMany({
-    where: query
-      ? {
+    where: {
+      category, brand,
+      ...(query ? {
           OR: [
-            { sku: { contains: query, mode: "insensitive" } },
-            { name: { contains: query, mode: "insensitive" } },
+            { sku: exact ? { equals: query, mode: "insensitive" } : { contains: query, mode: "insensitive" } },
+            { name: exact ? { equals: query, mode: "insensitive" } : { contains: query, mode: "insensitive" } },
           ],
-        }
-      : undefined,
-    orderBy: { name: "asc" },
-    take: 500,
+        } : {}),
+    },
+    orderBy: [{ name: "asc" }, { sku: "asc" }],
+    take: limit + 1,
+    skip: offset,
   });
 
   return apiSuccess(
-    items.map((item) => ({
+    items.slice(0, limit).map((item) => ({
       sku: item.sku,
       name: item.name,
       category: item.category,
@@ -42,6 +50,8 @@ export async function GET(req: NextRequest) {
       isReturnable: item.isReturnable,
       trackSerial: item.trackSerial,
       trackBatch: item.trackBatch,
+      isNetPriceItem: item.isNetPriceItem,
     })),
+    { meta: { hasMore: items.length > limit, limit, offset } },
   );
 }

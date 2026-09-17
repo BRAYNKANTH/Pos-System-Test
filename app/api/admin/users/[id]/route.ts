@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import bcrypt from "bcryptjs";
+import { hashPinCode } from "@/lib/auth/pinHash";
 
 // PUT /api/admin/users/[id] — update user
 export async function PUT(req: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -40,6 +41,17 @@ export async function PUT(req: NextRequest, props: { params: Promise<{ id: strin
     if (body.password) {
       updateData.passwordHash = await bcrypt.hash(body.password, 10);
     }
+    // pinCode used to be collected by the form and silently dropped here
+    // — the "Security PIN" field never actually saved anything, so
+    // verifyManagerPin (lib/auth/managerPin.ts) had no real PIN to ever
+    // match against. The client only ever sends this key when the field
+    // has a value typed into it (an empty field is omitted, not sent as
+    // ""), so this only ever sets a new PIN — it can't accidentally wipe
+    // an existing one just because the field was left blank on an edit.
+    if (typeof body.pinCode === "string" && body.pinCode.trim()) {
+      // Stored hashed (see lib/auth/pinHash.ts), never in plaintext.
+      updateData.pinCode = hashPinCode(body.pinCode.trim());
+    }
 
     const updated = await prisma.user.update({
       where: { id },
@@ -49,10 +61,15 @@ export async function PUT(req: NextRequest, props: { params: Promise<{ id: strin
         name: true,
         email: true,
         role: true,
+        pinCode: true,
+        cardCode: true,
       }
     });
 
-    return apiSuccess(updated);
+    // Same sanitization as GET /api/admin/users — never ship the raw
+    // secret back out, just whether one's set (see that route's note).
+    const { pinCode, cardCode, ...rest } = updated;
+    return apiSuccess({ ...rest, hasPinCode: pinCode !== null, hasCardCode: cardCode !== null });
   } catch (err) {
     console.error("updateUser failed", err);
     return apiError("UPDATE_FAILED", "Failed to update user in database", { status: 500 });

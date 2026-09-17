@@ -64,6 +64,7 @@ export async function resolveLineDiscount(params: {
  * of their own qty/weight. */
 export async function resolveDiscountsForLines(
   lines: { sku: string; category: string | null; brand: string | null; qty: number; unitPrice: number }[],
+  context?: { locationName?: string; customerGroup?: string },
 ): Promise<(ResolvedDiscount | null)[]> {
   const now = new Date();
   const discounts = await prisma.discount.findMany({
@@ -76,6 +77,8 @@ export async function resolveDiscountsForLines(
     if (lineTotal <= 0) return null;
 
     for (const d of discounts) {
+      if (context && d.location && d.location !== context.locationName) continue;
+      if (context && d.applyInCustomerGroups && d.sellingPriceGroup !== "All" && d.sellingPriceGroup !== context.customerGroup) continue;
       const products = Array.isArray(d.products) ? (d.products as { sku?: string }[]) : [];
       const matchesSku = products.some((p) => p.sku === line.sku);
       const matchesBrand = Boolean(d.brand) && d.brand === line.brand;

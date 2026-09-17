@@ -67,14 +67,13 @@ const PERMISSION_GROUPS = [
       { key: "customer:no-sell-1m", label: "View customers with no sell from one month only" },
       { key: "customer:no-sell-3m", label: "View customers with no sell from three months only" },
       { key: "customer:no-sell-6m", label: "View customers with no sell from six months only" },
+      { key: "customer:credit-manage", label: "Manually issue/void customer credit notes" },
     ],
   },
   {
     category: "Core POS & Bills",
     permissions: [
-      { key: "bills:approve", label: "Approve Bills" },
-      { key: "bills:reject", label: "Reject Bills" },
-      { key: "bills:request-change", label: "Request Bill Change" },
+      { key: "bills:approve", label: "Approve Bills (Void Sale)" },
       { key: "inventory:approve", label: "Approve Inventory Adjustments" },
       { key: "inventory:reject", label: "Reject Inventory Adjustments" },
       { key: "inventory:adjust", label: "Request Inventory Adjustment" },

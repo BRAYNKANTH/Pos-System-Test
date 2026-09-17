@@ -49,13 +49,10 @@ export async function creditDefaultLocation(tx: Prisma.TransactionClient, sku: s
 export async function debitDefaultLocationBestEffort(tx: Prisma.TransactionClient, sku: string, qty: number) {
   const locationId = await getDefaultLocationId(tx);
   if (!locationId) return;
-  const row = await tx.locationStock.findUnique({ where: { locationId_sku: { locationId, sku } } });
-  const next = Math.max(0, (row?.qty ?? 0) - qty);
-  await tx.locationStock.upsert({
-    where: { locationId_sku: { locationId, sku } },
-    update: { qty: next },
-    create: { locationId, sku, qty: next },
+  const result = await tx.locationStock.updateMany({
+    where: { locationId, sku, qty: { gte: qty } }, data: { qty: { decrement: qty } },
   });
+  if (!result.count) throw new Error(`Stock for ${sku} is insufficient at the selling location. Reconcile or transfer stock before selling.`);
 }
 
 export class InsufficientLocationStockError extends Error {

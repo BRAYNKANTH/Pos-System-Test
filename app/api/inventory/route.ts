@@ -5,6 +5,12 @@ import { apiSuccess, apiError } from "@/lib/api-response";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { creditDefaultLocation } from "@/lib/inventory/locationStock";
 import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
+import { listInventory } from "@/lib/inventory/list";
+
+export async function GET(req: NextRequest) {
+  if (!(await getCurrentUser())) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
+  return apiSuccess(await listInventory(req.nextUrl.searchParams));
+}
 
 // POST /api/inventory - Create a new product (InventoryItem)
 export async function POST(req: NextRequest) {
@@ -26,6 +32,7 @@ export async function POST(req: NextRequest) {
   const isReturnable = body?.isReturnable === false ? false : true;
   const trackSerial = Boolean(body?.trackSerial);
   const trackBatch = Boolean(body?.trackBatch);
+  const isNetPriceItem = Boolean(body?.isNetPriceItem);
 
   if (!name) {
     return apiError("INVALID_INPUT", "Product name is required", { status: 400 });
@@ -85,6 +92,7 @@ export async function POST(req: NextRequest) {
           isReturnable,
           trackSerial,
           trackBatch,
+          isNetPriceItem,
         },
       });
 

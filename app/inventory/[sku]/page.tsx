@@ -3,18 +3,24 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { BatchesPanel } from "./_BatchesPanel";
 
 export default async function InventoryItemPage({ params }: { params: Promise<{ sku: string }> }) {
   const { sku } = await params;
   const item = await prisma.inventoryItem.findUnique({ where: { sku } });
   if (!item) notFound();
 
-  const history = await prisma.stockAdjustment.findMany({
-    where: { sku },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    include: { requester: true, approver: true },
-  });
+  const [history, batches] = await Promise.all([
+    prisma.stockAdjustment.findMany({
+      where: { sku },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: { requester: true, approver: true },
+    }),
+    item.trackBatch
+      ? prisma.itemBatch.findMany({ where: { sku }, orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }] })
+      : Promise.resolve([]),
+  ]);
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-4 px-6 py-12">
@@ -38,6 +44,19 @@ export default async function InventoryItemPage({ params }: { params: Promise<{ 
           )}
         </p>
       </div>
+
+      {item.trackBatch && (
+        <BatchesPanel
+          sku={item.sku}
+          batches={batches.map((b) => ({
+            batchNumber: b.batchNumber,
+            qtyOnHand: b.qtyOnHand,
+            costPrice: b.costPrice !== null ? Number(b.costPrice) : null,
+            unitPrice: b.unitPrice !== null ? Number(b.unitPrice) : null,
+            expiryDate: b.expiryDate ? b.expiryDate.toISOString().slice(0, 10) : null,
+          }))}
+        />
+      )}
 
       <div>
         <h2 className="mb-2 text-sm font-semibold">History</h2>

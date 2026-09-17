@@ -71,10 +71,11 @@ export async function validateAndAssignSerials(
       throw new InvalidSerialError(trimmed, `serial is currently marked as '${record.status}'`);
     }
 
-    await tx.itemSerial.update({
-      where: { id: record.id },
+    const assigned = await tx.itemSerial.updateMany({
+      where: { id: record.id, status: "available" },
       data: { status: "sold", transactionId },
     });
+    if (assigned.count !== 1) throw new InvalidSerialError(trimmed, "serial was sold by another checkout; select another unit");
   }
 }
 

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSaleQuote } from "@/lib/pos/use-sale-quote";
+import { useProducts } from "@/lib/pos/use-products";
 import { useCartStore } from "@/lib/pos/cart-store";
 import { CartPanel } from "./_components/CartPanel";
 import { ProductSearch } from "./_components/ProductSearch";
@@ -107,7 +109,7 @@ export default function PosPage() {
   // Products — fetched once and passed to both CartPanel and ProductSearch.
   // Previously each component fetched independently, causing 2 identical
   // /api/pos/products requests on every page load.
-  const [products, setProducts] = useState<Product[]>([]);
+  const { products, error: productError, refetch: refreshProducts } = useProducts();
   // Tax rate fetched from the DB default rule — kept in sync with what checkout
   // actually charges so the displayed total always matches the final amount.
   const [taxRate, setTaxRate] = useState(0.08);
@@ -124,7 +126,7 @@ export default function PosPage() {
   useEffect(() => {
     function measure() {
       const header = document.getElementById("app-header");
-      if (header) setHeaderOffsetPx(header.getBoundingClientRect().height);
+      if (header) setHeaderOffsetPx(header.getBoundingClientRect().bottom);
     }
     measure();
     window.addEventListener("resize", measure);
@@ -132,9 +134,6 @@ export default function PosPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/pos/products")
-      .then((r) => r.json())
-      .then((body) => { if (body.success) setProducts(body.data); });
     fetch("/api/pos/tax-rate")
       .then((r) => r.json())
       .then((body) => { if (body.success) setTaxRate(body.data.rate); });
@@ -206,7 +205,7 @@ export default function PosPage() {
 
   // Compute pricing using the DB-fetched tax rate so the cart preview
   // always matches what the server will charge at checkout.
-  const calculation = useMemo(() => {
+  const localCalculation = useMemo(() => {
     if (lines.length === 0) {
       return { lines: [], subtotal: 0, totalDiscount: 0, tax: 0, shipping: 0, total: 0 };
     }
@@ -221,6 +220,8 @@ export default function PosPage() {
     return calculateCart(cartLines, taxRate, shipping);
   }, [lines, discount, shipping, taxRate]);
 
+  const quote = useSaleQuote();
+  const calculation = quote.ready && quote.data ? quote.data : localCalculation;
   const totalPayable = calculation.total;
   const totalItems = lines.reduce((sum, l) => sum + l.qty, 0);
 
@@ -247,12 +248,15 @@ export default function PosPage() {
   }
 
   // Save held cart
+  const holdInFlight = useRef(false);
   async function handleHoldCart(type: "draft" | "suspended") {
     if (lines.length === 0) {
       triggerAlert("error", "Cart cannot be empty to hold");
       return;
     }
-    if (holdingCart) return;
+    if (holdInFlight.current) return;
+    holdInFlight.current = true;
+    const snapshot = JSON.stringify({ lines, customerId, discount, shipping });
 
     setHoldingCart(true);
     try {
@@ -262,28 +266,36 @@ export default function PosPage() {
         body: JSON.stringify({
           type,
           customerId,
-          lines: lines.map((l) => ({ sku: l.sku, name: l.name, unitPrice: l.unitPrice, qty: l.qty })),
-          discount,
+          lines,
+          heldCartId: useCartStore.getState().heldCartId,
+          discount: discount ? { ...discount, loyaltyRedeem: useCartStore.getState().loyaltyRedeem } : null,
           shipping,
           note: type === "suspended" ? "Suspended POS sale" : "Draft POS sale",
         }),
       });
       const body = await res.json();
       if (body.success) {
-        clear();
-        triggerAlert("success", `Sale saved as ${type} successfully.`);
+        const current = useCartStore.getState();
+        if (snapshot === JSON.stringify({ lines: current.lines, customerId: current.customerId, discount: current.discount, shipping: current.shipping })) {
+          clear();
+          triggerAlert("success", `Sale saved as ${type} successfully.`);
+        } else {
+          triggerAlert("success", "Draft saved. Your newer cart edits remain on screen.");
+        }
       } else {
         triggerAlert("error", body.error?.message ?? "Failed to hold sale");
       }
     } catch (err) {
       triggerAlert("error", "Failed to contact server. Checking offline capability.");
     } finally {
+      holdInFlight.current = false;
       setHoldingCart(false);
     }
   }
 
   // Resume a held cart
   async function handleResumeCart(cart: HeldCart) {
+    if (lines.length && !window.confirm("Replace the active cart with this draft? Hold the current sale first if you need to keep it.")) return;
     // Format JSON lines back to CartLine
     const cartLines = Array.isArray(cart.lines) ? cart.lines : [];
     
@@ -296,10 +308,10 @@ export default function PosPage() {
       customerName: cart.customer?.name ?? null,
     });
 
-    // Delete resumed cart draft immediately from backend
-    await fetch(`/api/pos/held-carts/${cart.id}`, { method: "DELETE" }).catch(() => {});
+    const redemption = (cart.discount as (CartDiscount & { loyaltyRedeem?: { points: number; value: number } }))?.loyaltyRedeem;
+    if (redemption && cart.customerId) useCartStore.getState().applyLoyaltyRedeem(redemption.points, redemption.value);
 
-    setIsHeldModalOpen(false);
+    setIsRecentModalOpen(false);
     triggerAlert("success", "Draft resumed successfully.");
   }
 
@@ -317,7 +329,7 @@ export default function PosPage() {
   // Trigger transient banner alerts
   function triggerAlert(type: "success" | "error", text: string) {
     setAlertMsg({ type, text });
-    setTimeout(() => setAlertMsg(null), 4000);
+    // Keep feedback until the cashier dismisses it or performs the next action.
   }
 
   // Simple Calculator — safe arithmetic parser replacing the former
@@ -419,19 +431,9 @@ export default function PosPage() {
   // Global POS hardware keyboard shortcuts listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept when payment modal or other top modals are open
-      if (isPaymentOpen || isRecentModalOpen || isCalculatorOpen || isExpenseOpen) {
-        if (e.key === "Escape") {
-          setIsPaymentOpen(false);
-          setIsRecentModalOpen(false);
-          setIsCalculatorOpen(false);
-          setIsExpenseOpen(false);
-        }
-        return;
-      }
-
+      if (e.defaultPrevented || e.isComposing || document.querySelector('dialog[open]')) return;
       const activeTag = document.activeElement?.tagName.toLowerCase();
-      const isInputActive = activeTag === "input" || activeTag === "textarea" || activeTag === "select";
+      const isInputActive = activeTag === "input" || activeTag === "textarea" || activeTag === "select" || document.activeElement?.getAttribute("contenteditable") === "true";
 
       // F1: Focus Barcode / Search Input
       if (e.key === "F1") {
@@ -452,16 +454,17 @@ export default function PosPage() {
       else if (e.key === "F4") {
         e.preventDefault();
         if (lines.length > 0) {
-          setIsPaymentOpen(true);
+          if (quote.ready) setIsPaymentOpen(true);
+          else triggerAlert("error", quote.error?.message ?? "Confirming current prices. Please wait.");
         } else {
           triggerAlert("error", "Cart is empty. Add products before payment.");
         }
       }
 
       // Spacebar: Open Payment Modal when not typing
-      else if (e.key === " " && !isInputActive && lines.length > 0) {
+      else if (e.key === " " && !isInputActive && (document.activeElement === document.body) && lines.length > 0) {
         e.preventDefault();
-        setIsPaymentOpen(true);
+        if (quote.ready) setIsPaymentOpen(true);
       }
 
       // F8: Hold / Suspend Sale
@@ -482,7 +485,7 @@ export default function PosPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPaymentOpen, isRecentModalOpen, isCalculatorOpen, isExpenseOpen, lines]);
+  }, [isPaymentOpen, isRecentModalOpen, isCalculatorOpen, isExpenseOpen, lines, quote.ready, quote.error]);
 
   // Cart Clear Confirmation Guard
   function handleCancelCart() {
@@ -498,34 +501,35 @@ export default function PosPage() {
 
   return (
     <div
-      className="flex flex-col bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 overflow-hidden select-none"
+      className="pos-workspace flex flex-col bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
       style={{ height: `calc(100dvh - ${headerOffsetPx}px)` }}
     >
       
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* TOP HEADER BAR */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      <header className="flex flex-wrap items-center justify-between gap-3 bg-white px-4 py-2.5 border-b shadow-xs dark:bg-zinc-950 dark:border-zinc-800 shrink-0">
-        
+      {productError && <p role="alert" className="bg-red-50 p-3 text-red-800">Products could not be loaded. <button onClick={() => void refreshProducts()} className="underline">Retry</button></p>}
+      <header className="flex flex-wrap items-center justify-between gap-3 bg-white px-5 py-3.5 border-b shadow-xs dark:bg-zinc-950 dark:border-zinc-800 shrink-0">
+
         {/* Left: Location & Time */}
         <div className="flex items-center gap-3">
-          <Link href="/" className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-bold hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 transition">
-            <Home className="h-3.5 w-3.5 text-indigo-600" />
+          <Link href="/" className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3.5 py-2 text-sm font-bold hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 transition">
+            <Home className="h-4.5 w-4.5 text-indigo-600" />
             Dashboard
           </Link>
-          <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-            <MapPin className="h-3.5 w-3.5 text-indigo-500" />
+          <div className="hidden sm:flex items-center gap-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+            <MapPin className="h-4.5 w-4.5 text-indigo-500" />
             <span>Store: <strong className="text-zinc-900 dark:text-white">{storeLocationName || "—"}</strong></span>
           </div>
-          <div className="flex items-center gap-1.5 rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400">
-            <Clock className="h-3 w-3" />
+          <div className="flex items-center gap-2 rounded-md bg-indigo-50 px-3 py-1.5 text-sm font-bold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400">
+            <Clock className="h-4 w-4" />
             <span className="font-mono">{currentTime || "06-08-2026 06:56"}</span>
           </div>
           <RegisterStatusBar />
         </div>
 
         {/* Center/Right: Actions Bar */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => {
               fetchRecentTransactions();
@@ -533,18 +537,18 @@ export default function PosPage() {
               fetchQuotations();
               setIsRecentModalOpen(true);
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
             title="Recent Completed Sales"
           >
-            <History className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
+            <History className="h-5 w-5 text-zinc-600 dark:text-zinc-300" />
           </button>
-          
+
           <button
             onClick={() => setIsCalculatorOpen(true)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
             title="Calculator"
           >
-            <Calculator className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
+            <Calculator className="h-5 w-5 text-zinc-600 dark:text-zinc-300" />
           </button>
 
           <button
@@ -555,27 +559,27 @@ export default function PosPage() {
               setActiveTxTab("draft");
               setIsRecentModalOpen(true);
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
             title="Resumable Held Sales"
           >
-            <Briefcase className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
+            <Briefcase className="h-5 w-5 text-zinc-600 dark:text-zinc-300" />
           </button>
 
           <button
             onClick={handleCancelCart}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-650 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 transition shadow-2xs"
             title="Clear Cart"
           >
-            <RefreshCw className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
+            <RefreshCw className="h-5 w-5 text-zinc-600 dark:text-zinc-300" />
           </button>
 
-          <span className="mx-1 h-5 border-l border-zinc-200 dark:border-zinc-800"></span>
+          <span className="mx-1 h-6 border-l border-zinc-200 dark:border-zinc-800"></span>
 
           <button
             onClick={() => setIsExpenseOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-bold hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition shadow-2xs"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3.5 py-2 text-sm font-bold hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition shadow-2xs"
           >
-            <Plus className="h-3.5 w-3.5 text-indigo-500" />
+            <Plus className="h-4.5 w-4.5 text-indigo-500" />
             Add Expense
           </button>
         </div>
@@ -583,27 +587,27 @@ export default function PosPage() {
 
       {/* ── Fixed Toast Notification ───────────────────────────────────────── */}
       {alertMsg && (
-        <div className={`fixed bottom-14 right-6 z-50 flex items-center gap-2.5 rounded-xl px-4 py-3 text-xs font-bold shadow-xl animate-slide-up ${
+        <div role={alertMsg.type === "error" ? "alert" : "status"} className={`fixed bottom-14 right-6 z-50 flex items-center gap-2.5 rounded-xl px-4 py-3 text-xs font-bold shadow-xl animate-slide-up ${
           alertMsg.type === "success"
             ? "bg-emerald-600 text-white"
             : "bg-red-600 text-white"
         }`}>
-          <span>{alertMsg.text}</span>
+          <span>{alertMsg.text}</span><button aria-label="Dismiss notification" onClick={() => setAlertMsg(null)} className="p-2">Close</button>
         </div>
       )}
 
       {/* ────────────────────────────────────────────────────────────────── */}
-      {/* MAIN WORKSPACE SPLIT (44% Cart / 56% Product Catalog Grid)       */}
+      {/* MAIN WORKSPACE SPLIT (50% Cart / 50% Product Catalog Grid)       */}
       {/* ────────────────────────────────────────────────────────────────── */}
       <main className="flex-1 flex flex-col lg:flex-row gap-3 p-3 min-h-0 overflow-hidden">
-        {/* Left: Invoice Cart Panel (44% on Large/Laptop — widened from 38%
-            so the larger billing-panel text/controls have room to breathe) */}
-        <div className="w-full lg:w-[44%] flex flex-col min-h-0 shrink-0">
+        {/* Left: Invoice Cart Panel (an even half on Large/Laptop — was 38%,
+            then 44%, still visibly smaller than the catalog side) */}
+        <div className="w-full lg:w-1/2 lg:flex-1 flex flex-col min-w-0 min-h-0 shrink-0">
           <CartPanel products={products} calculation={calculation} taxRate={taxRate} />
         </div>
 
-        {/* Right: Product Catalog Grid (56% on Large/Laptop) */}
-        <div className="w-full lg:w-[56%] flex flex-col min-h-0 flex-1">
+        {/* Right: Product Catalog Grid (the other half) */}
+        <div className="w-full lg:w-1/2 flex flex-col min-h-0 flex-1">
           <ProductSearch products={products} />
         </div>
       </main>
@@ -611,6 +615,7 @@ export default function PosPage() {
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* FOOTER ACTION BAR & KEYBOARD SHORTCUTS HINT                        */}
       {/* ────────────────────────────────────────────────────────────────── */}
+      {!!lines.length && <div role="status" className="px-4 py-2 text-sm">{quote.pending ? "Confirming current prices..." : quote.error?.message || "Prices confirmed"}{quote.error && <button className="ml-3 underline" onClick={() => void quote.refetch()}>Retry pricing</button>}</div>}
       <footer className="sticky bottom-0 bg-white border-t border-zinc-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-md dark:bg-zinc-950 dark:border-zinc-800 shrink-0">
         
         {/* Left Actions */}
@@ -622,33 +627,33 @@ export default function PosPage() {
               fetchQuotations();
               setIsRecentModalOpen(true);
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3.5 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 transition"
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-50 px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 transition"
           >
-            <History className="h-3.5 w-3.5" />
+            <History className="h-4 w-4" />
             Recent Sales
           </button>
-          
+
           <button
             onClick={() => handleHoldCart("draft")}
             disabled={holdingCart}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-4 py-2.5 text-sm font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
             title="Hold Sale (F8)"
           >
-            <FileText className="h-3.5 w-3.5 text-zinc-400" />
+            <FileText className="h-4 w-4 text-zinc-400" />
             {holdingCart ? "Holding..." : "Hold (F8)"}
           </button>
 
           <button
             onClick={() => handleHoldCart("suspended")}
             disabled={holdingCart}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-4 py-2.5 text-sm font-bold hover:bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:hover:bg-zinc-900 dark:text-zinc-300 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Pause className="h-3.5 w-3.5 text-zinc-400" />
+            <Pause className="h-4 w-4 text-zinc-400" />
             Suspend
           </button>
 
           {/* Keyboard Shortcuts Pill Rail */}
-          <div className="hidden xl:flex items-center gap-2 pl-3 border-l border-zinc-200 dark:border-zinc-800 text-[10px] text-zinc-400 font-mono">
+          <div className="hidden xl:flex items-center gap-2 pl-3 border-l border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-400 font-mono">
             <span><kbd className="rounded bg-zinc-100 px-1 py-0.5 border text-zinc-700 font-bold dark:bg-zinc-800 dark:text-zinc-300">F1</kbd> Search</span>
             <span><kbd className="rounded bg-zinc-100 px-1 py-0.5 border text-zinc-700 font-bold dark:bg-zinc-800 dark:text-zinc-300">F2</kbd> Customer</span>
             <span><kbd className="rounded bg-zinc-100 px-1 py-0.5 border text-zinc-700 font-bold dark:bg-zinc-800 dark:text-zinc-300">F4/Space</kbd> Pay</span>
@@ -663,27 +668,29 @@ export default function PosPage() {
           {/* Cancel Button */}
           <button
             onClick={handleCancelCart}
-            className="h-10 px-4 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-xs font-bold text-red-600 transition flex items-center gap-1 dark:border-red-900 dark:bg-red-950/20"
+            className="h-12 px-5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-sm font-bold text-red-600 transition flex items-center gap-1.5 dark:border-red-900 dark:bg-red-950/20"
           >
-            <XCircle className="h-4 w-4" />
+            <XCircle className="h-5 w-5" />
             Cancel Sale
           </button>
 
           {/* Total Payable display */}
           <div className="text-right pr-1">
-            <span className="text-[10px] uppercase font-bold text-zinc-400 dark:text-zinc-500 block">Total Payable:</span>
-            <p className="text-xl font-black font-mono leading-none text-zinc-900 dark:text-white tabular-nums">
+            <span className="text-xs uppercase font-bold text-zinc-400 dark:text-zinc-500 block">Total Payable:</span>
+            <p className="text-2xl font-black font-mono leading-none text-zinc-900 dark:text-white tabular-nums">
               Rs {totalPayable.toFixed(2)}
             </p>
           </div>
 
-          {/* Pay Button */}
+          {/* Pay Button — the single most important control on this screen
+              (every sale ends here), so it gets real weight instead of
+              reading the same size as Cancel/Hold/Suspend next to it. */}
           <button
-            disabled={lines.length === 0}
-            onClick={() => setIsPaymentOpen(true)}
-            className="h-11 px-6 rounded-xl bg-indigo-650 hover:bg-indigo-750 text-sm font-extrabold text-white transition flex items-center gap-2 shadow-md disabled:opacity-40 disabled:cursor-not-allowed select-none tracking-wide"
+            disabled={lines.length === 0 || !quote.ready}
+            onClick={() => { if (quote.ready) setIsPaymentOpen(true); else triggerAlert("error", quote.error?.message ?? "Confirming current prices?"); }}
+            className="h-14 px-8 rounded-xl bg-indigo-650 hover:bg-indigo-750 text-lg font-extrabold text-white transition flex items-center gap-2.5 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed select-none tracking-wide"
           >
-            <CreditCard className="h-4.5 w-4.5" />
+            <CreditCard className="h-6 w-6" />
             {lines.length > 0 ? `Pay Now (Space / F4)` : "Pay"}
           </button>
         </div>
@@ -803,6 +810,7 @@ export default function PosPage() {
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => {
+                            if (lines.length && !window.confirm("Replace the current cart? Hold it first to keep your work.")) return;
                             loadQuotationItems({
                               lines: q.items.map((i) => ({ sku: i.sku, name: i.name, unitPrice: Number(i.unitPrice), qty: i.qty })),
                               customerId: q.customerId,
@@ -850,7 +858,7 @@ export default function PosPage() {
                       <span className="font-bold text-zinc-900 dark:text-white">{shortId}</span>
                       <span className="text-xs text-zinc-500 dark:text-zinc-400 flex flex-wrap gap-1 items-center">
                         <span>({c.customer?.name ?? "Walk-In"})</span>
-                        <span className="text-[10px] uppercase font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-1 rounded">{c.type}</span>
+                        <span className="text-[11px] uppercase font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-1 rounded">{c.type}</span>
                       </span>
                     </div>
                     <div className="flex items-center gap-4">

@@ -6,6 +6,29 @@ import { apiSuccess, apiError } from "@/lib/api-response";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { enqueueSyncJob } from "@/lib/sync/enqueueSyncJob";
 
+// GET /api/inventory/[sku] - Fetch a single product's full record, for the
+// Edit Product form to prefill from (list/search views only carry the
+// subset of fields they display, not the complete record).
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ sku: string }> }
+) {
+  const user = await getCurrentUser();
+  if (!user) return apiError("UNAUTHENTICATED", "Login required", { status: 401 });
+
+  const { sku } = await params;
+  if (!sku) {
+    return apiError("INVALID_INPUT", "SKU is required", { status: 400 });
+  }
+
+  const item = await prisma.inventoryItem.findUnique({ where: { sku } });
+  if (!item) {
+    return apiError("NOT_FOUND", `Product "${sku}" not found`, { status: 404 });
+  }
+
+  return apiSuccess(item);
+}
+
 // DELETE /api/inventory/[sku] - Delete a product
 export async function DELETE(
   req: NextRequest,
@@ -69,10 +92,17 @@ export async function PATCH(
   const purchasePrice = body?.purchasePrice !== undefined ? Number(body.purchasePrice) : undefined;
   const unitPrice = body?.unitPrice !== undefined ? Number(body.unitPrice) : undefined;
   const name = typeof body?.name === "string" ? body.name : undefined;
+  // null (not just undefined) is a valid, meaningful value for these two —
+  // "clear the category/brand" — so both must be distinguished from "the
+  // caller didn't send this field at all".
+  const category = typeof body?.category === "string" || body?.category === null ? body.category : undefined;
+  const brand = typeof body?.brand === "string" || body?.brand === null ? body.brand : undefined;
+  const lowStockThreshold = body?.lowStockThreshold !== undefined ? Number(body.lowStockThreshold) : undefined;
   const isScaleItem = typeof body?.isScaleItem === "boolean" ? body.isScaleItem : undefined;
   const isReturnable = typeof body?.isReturnable === "boolean" ? body.isReturnable : undefined;
   const trackSerial = typeof body?.trackSerial === "boolean" ? body.trackSerial : undefined;
   const trackBatch = typeof body?.trackBatch === "boolean" ? body.trackBatch : undefined;
+  const isNetPriceItem = typeof body?.isNetPriceItem === "boolean" ? body.isNetPriceItem : undefined;
 
   try {
     // Turning batch/serial tracking ON for a product that already has
@@ -101,10 +131,14 @@ export async function PATCH(
         ...(purchasePrice !== undefined && { purchasePrice }),
         ...(unitPrice !== undefined && { unitPrice }),
         ...(name !== undefined && { name }),
+        ...(category !== undefined && { category }),
+        ...(brand !== undefined && { brand }),
+        ...(lowStockThreshold !== undefined && { lowStockThreshold }),
         ...(isScaleItem !== undefined && { isScaleItem }),
         ...(isReturnable !== undefined && { isReturnable }),
         ...(trackSerial !== undefined && { trackSerial }),
         ...(trackBatch !== undefined && { trackBatch }),
+        ...(isNetPriceItem !== undefined && { isNetPriceItem }),
       },
     });
 

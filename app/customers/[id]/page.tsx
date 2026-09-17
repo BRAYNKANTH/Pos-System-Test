@@ -3,14 +3,39 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { NewOrderButton } from "./_NewOrderButton";
+import { CreditNotesPanel } from "./_CreditNotesPanel";
+import { getCurrentUser } from "@/lib/auth/session";
+import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 
 export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const customer = await prisma.customer.findUnique({
-    where: { id },
-    include: { orders: { orderBy: { createdAt: "desc" } } },
-  });
+  const [customer, user] = await Promise.all([
+    prisma.customer.findUnique({
+      where: { id },
+      include: {
+        orders: { orderBy: { createdAt: "desc" } },
+        storeCredits: {
+          orderBy: { createdAt: "desc" },
+          include: { sourceReturn: { select: { id: true, transactionId: true } } },
+        },
+      },
+    }),
+    getCurrentUser(),
+  ]);
   if (!customer) notFound();
+
+  const canManageCredit = user ? await checkPermission(user.role, PERMISSIONS.CUSTOMER_CREDIT_MANAGE) : false;
+  const creditNotes = customer.storeCredits.map((c) => ({
+    id: c.id,
+    amount: Number(c.amount),
+    remainingAmount: Number(c.remainingAmount),
+    status: c.status,
+    reason: c.reason,
+    sourceTransactionId: c.sourceReturn?.transactionId ?? null,
+    createdAt: c.createdAt.toISOString(),
+  }));
+  const availableBalance =
+    Math.round(creditNotes.filter((c) => c.status === "active").reduce((sum, c) => sum + c.remainingAmount, 0) * 100) / 100;
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-6 py-12">
@@ -27,7 +52,7 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
       {/* Loyalty Card Card */}
       <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-900 to-indigo-950 text-white shadow-md space-y-2 border border-indigo-800">
         <div className="flex justify-between items-center">
-          <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-300">
+          <span className="text-[12px] font-extrabold uppercase tracking-wider text-indigo-300">
             🏆 {customer.loyaltyTier || "Bronze"} Member
           </span>
           <span className="text-xs font-mono font-bold bg-indigo-800/80 px-2 py-0.5 rounded text-indigo-200">
@@ -44,6 +69,13 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
           </span>
         </div>
       </div>
+
+      <CreditNotesPanel
+        customerId={customer.id}
+        availableBalance={availableBalance}
+        creditNotes={creditNotes}
+        canManage={canManageCredit}
+      />
 
       <div>
         <div className="mb-2 flex items-center justify-between">

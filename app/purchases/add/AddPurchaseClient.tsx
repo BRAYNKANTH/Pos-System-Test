@@ -1,20 +1,23 @@
 "use client";
+import { Modal } from "@/components/ui/modal";
 
 import { useEffect, useMemo, useState } from "react";
+import { NumberInput } from "@/components/ui/number-input";
+import { useProducts } from "@/lib/pos/use-products";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, ArrowLeft, PackagePlus, Sparkles, X, ShoppingCart, Store, CreditCard, Building2 } from "lucide-react";
 import Link from "next/link";
 
 type Supplier = { id: string; name: string };
 type Location = { id: string; name: string; code: string; isDefault: boolean };
-type Product = { sku: string; name: string; unitPrice: number; category?: string; brand?: string };
+type Product = { sku: string; name: string; unitPrice: number; purchasePrice?: number; category?: string | null; brand?: string | null };
 
 type Line = {
   id: string;
   sku: string;
   name: string;
-  category?: string;
-  brand?: string;
+  category?: string | null;
+  brand?: string | null;
   qty: number;
   unitCost: number;
   unitPrice?: number;
@@ -28,7 +31,6 @@ export function AddPurchaseClient() {
   const router = useRouter();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
 
@@ -65,9 +67,6 @@ export function AddPurchaseClient() {
         if (def) setLocationId(def.id);
       }
     });
-    fetch("/api/pos/products").then((r) => r.json()).then((res) => {
-      if (res.success) setProducts(res.data);
-    });
     fetch("/api/inventory/categories").then((r) => r.json()).then((res) => {
       if (res.success && Array.isArray(res.data)) {
         setCategories(res.data.map((c: { name: string } | string) => (typeof c === "string" ? c : c.name)));
@@ -80,13 +79,8 @@ export function AddPurchaseClient() {
     });
   }, []);
 
-  const filteredProducts = useMemo(() => {
-    const q = productQuery.trim().toLowerCase();
-    if (!q) return [];
-    return products
-      .filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [products, productQuery]);
+  const productLookup = useProducts(productQuery);
+  const filteredProducts = productQuery.trim() ? productLookup.products.slice(0, 8) : [];
 
   function addExistingProductLine(p: Product) {
     setLines((prev) => {
@@ -103,7 +97,7 @@ export function AddPurchaseClient() {
           category: p.category,
           brand: p.brand,
           qty: 1,
-          unitCost: Number((p.unitPrice * 0.7).toFixed(2)),
+          unitCost: p.purchasePrice ?? 0,
           unitPrice: p.unitPrice,
           isNewProduct: false,
         },
@@ -232,6 +226,8 @@ export function AddPurchaseClient() {
         return;
       }
       router.push("/purchases");
+    } catch {
+      setError("Could not save the purchase. Check your connection and retry.");
     } finally {
       setSubmitting(false);
     }
@@ -284,7 +280,7 @@ export function AddPurchaseClient() {
               <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">
                 Supplier / Vendor *
               </label>
-              <select
+              <select aria-label="Supplier / Vendor"
                 required
                 value={supplierId}
                 onChange={(e) => setSupplierId(e.target.value)}
@@ -303,7 +299,7 @@ export function AddPurchaseClient() {
               <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">
                 Receiving Location
               </label>
-              <select
+              <select aria-label="Receiving Location"
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
                 className="h-10 w-full rounded-xl border border-zinc-300/80 px-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 bg-white font-medium"
@@ -320,7 +316,7 @@ export function AddPurchaseClient() {
               <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">
                 Reference / PO No.
               </label>
-              <input
+              <input aria-label="Reference / PO No."
                 placeholder="Auto-generated (e.g. PO-1724...)"
                 value={referenceNo}
                 onChange={(e) => setReferenceNo(e.target.value)}
@@ -332,7 +328,7 @@ export function AddPurchaseClient() {
               <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">
                 Payment Method
               </label>
-              <select
+              <select aria-label="Payment Method"
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 className="h-10 w-full rounded-xl border border-zinc-300/80 px-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 bg-white font-medium"
@@ -412,7 +408,8 @@ export function AddPurchaseClient() {
 
           {/* Line Items Table */}
           <div className="border border-zinc-200/80 rounded-xl overflow-hidden shadow-xs">
-            <table className="w-full text-xs text-left">
+           <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-xs text-left">
               <thead className="bg-zinc-50 text-zinc-650 font-bold border-b border-zinc-150 uppercase tracking-wider text-xs">
                 <tr>
                   <th className="px-4 py-3">Item &amp; Details</th>
@@ -446,7 +443,7 @@ export function AddPurchaseClient() {
                     <td className="px-4 py-3">
                       {l.isNewProduct ? (
                         <div className="space-y-1">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200">
                             New Registration
                           </span>
                           <input
@@ -460,7 +457,7 @@ export function AddPurchaseClient() {
                       ) : (
                         <div>
                           <div className="font-bold text-zinc-800">{l.name}</div>
-                          <div className="text-[10px] text-zinc-400">Existing product catalog item</div>
+                          <div className="text-[11px] text-zinc-400">Existing product catalog item</div>
                         </div>
                       )}
                     </td>
@@ -498,27 +495,21 @@ export function AddPurchaseClient() {
 
                     {/* Qty */}
                     <td className="px-3 py-3 text-center">
-                      <input
-                        type="number"
+                      <NumberInput integer aria-label={`Quantity for ${l.name}`} 
                         min={1}
                         value={l.qty}
-                        onChange={(e) =>
-                          updateLineField(l.id, "qty", Math.max(1, parseInt(e.target.value) || 1))
-                        }
+                        onValueChange={(value) => updateLineField(l.id, "qty", value)}
                         className="h-8.5 w-20 rounded-lg border border-zinc-300 px-2 text-center font-mono outline-none focus:border-indigo-500 bg-white font-bold"
                       />
                     </td>
 
                     {/* Unit Cost */}
                     <td className="px-3 py-3 text-right">
-                      <input
-                        type="number"
+                      <NumberInput aria-label={`Price for ${l.name}`} 
                         min={0}
                         step="0.01"
                         value={l.unitCost}
-                        onChange={(e) =>
-                          updateLineField(l.id, "unitCost", Math.max(0, parseFloat(e.target.value) || 0))
-                        }
+                        onValueChange={(value) => updateLineField(l.id, "unitCost", value)}
                         className="h-8.5 w-24 rounded-lg border border-zinc-300 px-2 text-right font-mono outline-none focus:border-indigo-500 bg-white font-bold"
                       />
                     </td>
@@ -526,15 +517,12 @@ export function AddPurchaseClient() {
                     {/* Unit Price */}
                     <td className="px-3 py-3 text-right">
                       {l.isNewProduct ? (
-                        <input
-                          type="number"
+                        <NumberInput aria-label={`Price for ${l.name}`} 
                           min={0}
                           step="0.01"
                           placeholder="Selling"
-                          value={l.unitPrice ?? ""}
-                          onChange={(e) =>
-                            updateLineField(l.id, "unitPrice", Math.max(0, parseFloat(e.target.value) || 0))
-                          }
+                          value={l.unitPrice ?? 0}
+                          onValueChange={(value) => updateLineField(l.id, "unitPrice", value)}
                           className="h-8.5 w-24 rounded-lg border border-amber-300 px-2 text-right font-mono outline-none focus:border-indigo-500 bg-white font-bold"
                         />
                       ) : (
@@ -563,6 +551,7 @@ export function AddPurchaseClient() {
                 ))}
               </tbody>
             </table>
+           </div>
           </div>
 
           <div className="flex justify-between items-center border-t border-zinc-150 pt-4">
@@ -611,8 +600,8 @@ export function AddPurchaseClient() {
 
       {/* Quick Modal Dialog */}
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 border border-zinc-200">
+        <Modal open unstyled title="Register product" className="max-w-2xl" onClose={() => setShowModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-4 border border-zinc-200">
             <div className="flex items-center justify-between border-b border-zinc-150 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-650">
@@ -634,7 +623,7 @@ export function AddPurchaseClient() {
                 <label className="block font-bold text-zinc-700 uppercase tracking-wider mb-1">
                   Product Name *
                 </label>
-                <input
+                <input aria-label="Product Name"
                   required
                   type="text"
                   placeholder="e.g. Wireless Mouse M185"
@@ -649,7 +638,7 @@ export function AddPurchaseClient() {
                   <label className="block font-bold text-zinc-700 uppercase tracking-wider mb-1">
                     SKU (Optional)
                   </label>
-                  <input
+                  <input aria-label="SKU (Optional)"
                     type="text"
                     placeholder="Auto-generated if empty"
                     value={newProductSku}
@@ -661,7 +650,7 @@ export function AddPurchaseClient() {
                   <label className="block font-bold text-zinc-700 uppercase tracking-wider mb-1">
                     Category
                   </label>
-                  <input
+                  <input aria-label="Category"
                     type="text"
                     list="category-suggestions"
                     placeholder="e.g. Electronics"
@@ -677,7 +666,7 @@ export function AddPurchaseClient() {
                   <label className="block font-bold text-zinc-700 uppercase tracking-wider mb-1">
                     Brand (Optional)
                   </label>
-                  <input
+                  <input aria-label="Brand (Optional)"
                     type="text"
                     list="brand-suggestions"
                     placeholder="e.g. Logitech"
@@ -690,7 +679,7 @@ export function AddPurchaseClient() {
                   <label className="block font-bold text-zinc-700 uppercase tracking-wider mb-1">
                     Receiving Quantity *
                   </label>
-                  <input
+                  <input aria-label="Receiving Quantity"
                     required
                     type="number"
                     min={1}
@@ -706,7 +695,7 @@ export function AddPurchaseClient() {
                   <label className="block font-bold text-zinc-700 uppercase tracking-wider mb-1">
                     Unit Cost (Cost Price) *
                   </label>
-                  <input
+                  <input aria-label="Unit Cost (Cost Price)"
                     required
                     type="number"
                     min={0}
@@ -723,7 +712,7 @@ export function AddPurchaseClient() {
                   <label className="block font-bold text-zinc-700 uppercase tracking-wider mb-1">
                     Selling Price (Unit Price)
                   </label>
-                  <input
+                  <input aria-label="Selling Price (Unit Price)"
                     type="number"
                     min={0}
                     step="0.01"
@@ -758,7 +747,7 @@ export function AddPurchaseClient() {
               </div>
             </form>
           </div>
-        </div>
+        </Modal>
       )}
     </main>
   );

@@ -22,6 +22,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const existingId = typeof body?.heldCartId === "string" ? body.heldCartId : null;
+    if (existingId) {
+      const result = await prisma.heldCart.updateMany({ where: { id: existingId, cashierId: user.id },
+        data: { lines: lines as Prisma.InputJsonValue, discount: discount ?? Prisma.JsonNull, shipping, customerId, note, type } });
+      if (result.count !== 1) return apiError("NOT_FOUND", "Draft no longer exists", { status: 409 });
+      return apiSuccess({ id: existingId });
+    }
     const heldCart = await prisma.heldCart.create({
       data: {
         type,

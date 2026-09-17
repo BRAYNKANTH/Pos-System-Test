@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
     qty: l.qty,
     unitPrice: Number(bySku.get(l.sku)!.unitPrice),
     discount: autoDiscounts[i]?.amountForLine ?? 0,
+    isNetPriceItem: bySku.get(l.sku)!.isNetPriceItem,
   }));
 
   const discountedLines = applyDiscount(lines, discount);

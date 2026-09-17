@@ -4,12 +4,17 @@ import Dexie, { type Table } from "dexie";
 // checkout falls back to this when /api/pos/checkout can't be reached at
 // all (network error), not on a normal server error response.
 export type OfflinePayload = {
+  heldCartId?: string | null;
+  expectedTotal?: number;
+  offlineCashierId?: string;
   items: {
     sku: string;
     qty: number;
     scaleWeight?: number;
     batchNumber?: string;
     serialNumbers?: string[];
+    priceOverride?: { newPrice: number; reason: string };
+    lineDiscount?: { type: "percent" | "amount"; value: number };
   }[];
   tenders: { method: string; amount: number; giftCardCode?: string }[];
   discount?: { scope: "cart"; type: "percent" | "amount"; value: number };
@@ -24,6 +29,8 @@ export type OfflineTransaction = {
   idempotencyKey: string;
   payload: OfflinePayload;
   createdAt: number;
+  ownerId?: string;
+  lastError?: string;
 };
 
 class OfflineDB extends Dexie {

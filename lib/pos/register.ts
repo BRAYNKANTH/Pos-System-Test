@@ -1,4 +1,5 @@
 import { prisma, TRANSACTION_OPTIONS } from "@/lib/prisma";
+import { returnSettlement } from "./return-settlement";
 
 // Single-till assumption, matching the rest of the app (one location, one
 // POS terminal in practice) — only one RegisterSession can be open at a
@@ -103,7 +104,7 @@ export async function computeExpectedCash(sessionId: string): Promise<number> {
     computeNetCashFromSales(sessionId),
     prisma.cashMovement.findMany({ where: { sessionId } }),
     prisma.salesReturn.findMany({
-      where: { createdAt: { gte: session.openedAt, lte: windowEnd }, refundMethod: "cash" },
+      where: { createdAt: { gte: session.openedAt, lte: windowEnd } },
     }),
     prisma.expense.findMany({ where: { createdAt: { gte: session.openedAt, lte: windowEnd } } }),
     prisma.purchase.findMany({
@@ -113,12 +114,12 @@ export async function computeExpectedCash(sessionId: string): Promise<number> {
 
   const cashIn = movements.filter((m) => m.type === "in").reduce((sum, m) => sum + Number(m.amount), 0);
   const cashOut = movements.filter((m) => m.type === "out").reduce((sum, m) => sum + Number(m.amount), 0);
-  const cashRefunds = refunds.reduce((sum, r) => sum + Number(r.refundAmount), 0);
+  const cashReturnSettlement = refunds.map(returnSettlement).reduce((sum, r) => sum + (r.method === "cash" ? r.amount : 0), 0);
   const totalExpense = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
   const paidPurchaseDue = cashPurchasesPaid.reduce((sum, p) => sum + Number(p.amountPaid), 0);
 
   return (
-    Number(session.openingFloat) + netCash + cashIn - cashOut - cashRefunds - totalExpense - paidPurchaseDue
+    Number(session.openingFloat) + netCash + cashIn - cashOut + cashReturnSettlement - totalExpense - paidPurchaseDue
   );
 }
 
@@ -174,28 +175,31 @@ export async function getRegisterSummary(sessionId: string) {
   // Expected Cash figure below, which correctly nets it out. Card/wallet
   // are never "over-tendered with change" in practice — those are always
   // charged the exact amount owed — so only cash needs the adjustment.
-  const paymentBreakdown: Record<string, number> = { cash: 0, card: 0, wallet: 0 };
+  const paymentBreakdown: Record<string, number> = { cash: 0, card: 0, wallet: 0, gift_card: 0, store_credit: 0 };
   for (const tx of completed) {
     const totalTendered = tx.tenders.reduce((sum, t) => sum + Number(t.amount), 0);
     const changeGiven = Math.max(0, totalTendered - Number(tx.total));
     let changeRemaining = changeGiven;
     for (const tender of tx.tenders) {
-      const method = tender.method in paymentBreakdown ? tender.method : "cash";
+      const method = tender.method;
       let amount = Number(tender.amount);
       if (method === "cash" && changeRemaining > 0) {
         const deducted = Math.min(changeRemaining, amount);
         amount -= deducted;
         changeRemaining -= deducted;
       }
-      paymentBreakdown[method] += amount;
+      paymentBreakdown[method] = (paymentBreakdown[method] ?? 0) + amount;
     }
   }
 
-  const totalSales = completed.reduce((sum, t) => sum + Number(t.total), 0);
-  const totalRefund = refunds.reduce((sum, r) => sum + Number(r.refundAmount), 0);
+  const settlements = refunds.map(returnSettlement);
+  const exchangePayments = settlements.reduce((sum, r) => sum + Math.max(0, r.amount), 0);
+  const totalSales = completed.reduce((sum, t) => sum + Number(t.total), 0) + exchangePayments;
+  const totalRefund = settlements.reduce((sum, r) => sum + Math.max(0, -r.amount), 0);
   const refundByMethod: Record<string, number> = {};
-  for (const r of refunds) {
-    refundByMethod[r.refundMethod] = (refundByMethod[r.refundMethod] ?? 0) + Number(r.refundAmount);
+  for (const r of settlements) {
+    paymentBreakdown[r.method] = (paymentBreakdown[r.method] ?? 0) + Math.max(0, r.amount);
+    refundByMethod[r.method] = (refundByMethod[r.method] ?? 0) + Math.max(0, -r.amount);
   }
   const totalExpense = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
   const creditSales = credit.reduce((sum, t) => sum + Number(t.total), 0);

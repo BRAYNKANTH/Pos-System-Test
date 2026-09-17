@@ -114,7 +114,7 @@ export function SuppliersClient({
 
       {formOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-5 space-y-4">
+          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-lg w-full p-5 space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="font-bold text-sm text-zinc-800">{editing ? "Edit Supplier" : "Add Supplier"}</h3>
               <button onClick={() => setFormOpen(false)} className="text-zinc-400 hover:text-zinc-600">

@@ -11,12 +11,15 @@ import {
   User,
   Eye,
 } from "lucide-react";
+import { ManagerCardPanel } from "./_ManagerCardPanel";
 
 interface DBUser {
   id: string;
   name: string;
   email: string;
   role: string;
+  hasPinCode?: boolean;
+  hasCardCode?: boolean;
 }
 
 interface UsersClientProps {
@@ -113,6 +116,31 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
     setFormRole(item.role);
     setModalOpen(true);
   };
+
+  // Export/Print — these buttons used to just show a fake
+  // "Export to X completed." alert regardless of which one was clicked,
+  // with no file ever produced. Real CSV export + real print, matching
+  // the pattern already used on the Products list (see
+  // InventoryListClient's handleExportCSV/handlePrintTable).
+  const handleExportCSV = () => {
+    if (filteredUsers.length === 0) {
+      alert("No data to export.");
+      return;
+    }
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Name,Email,Role\n";
+    filteredUsers.forEach((u) => {
+      csvContent += `"${u.name.replace(/"/g, '""')}","${u.email}","${u.role}"\n`;
+    });
+    const link = document.createElement("a");
+    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("download", `users_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handlePrintTable = () => window.print();
 
   // Delete user
   const handleDelete = async (id: string, name: string) => {
@@ -231,17 +259,32 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
               <span>entries</span>
             </div>
 
-            {/* EXPORT ACTION BUTTONS */}
+            {/* EXPORT ACTION BUTTONS — used to all fire the same fake
+                "Export to X completed." alert with no file ever produced,
+                regardless of which button was clicked. Real now: CSV/Excel/
+                PDF all download an actual CSV of the currently filtered
+                list (same convention as the Products list's export
+                buttons), and Print opens the browser print dialog on the
+                visible table. Dropped "Column visibility" — there's no
+                column-toggle feature backing it anywhere in the app, and
+                a button that looks like it does something but doesn't is
+                worse than not having it. */}
             <div className="flex items-center flex-wrap gap-1.5 pl-2 border-l border-zinc-250">
-              {["CSV", "Excel", "Print", "Column visibility", "PDF"].map((label) => (
+              {["CSV", "Excel", "PDF"].map((label) => (
                 <button
                   key={label}
-                  onClick={() => alert(`Export to ${label} completed.`)}
+                  onClick={handleExportCSV}
                   className="border border-zinc-300 rounded px-3 py-1.5 text-xs font-bold text-zinc-550 hover:bg-zinc-50 hover:text-zinc-800 transition shadow-xxs bg-white"
                 >
                   Export {label}
                 </button>
               ))}
+              <button
+                onClick={handlePrintTable}
+                className="border border-zinc-300 rounded px-3 py-1.5 text-xs font-bold text-zinc-550 hover:bg-zinc-50 hover:text-zinc-800 transition shadow-xxs bg-white"
+              >
+                Print
+              </button>
             </div>
           </div>
 
@@ -499,7 +542,7 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
                         <input
                           type="password"
                           maxLength={6}
-                          placeholder="e.g. 1234"
+                          placeholder={editingItem?.hasPinCode ? "•••• already set — leave blank to keep" : "e.g. 1234"}
                           value={formPinCode}
                           onChange={(e) => setFormPinCode(e.target.value)}
                           className="h-9 w-full rounded border border-zinc-300 px-3 text-xs font-mono font-bold outline-none focus:border-indigo-500 bg-white"
@@ -529,6 +572,22 @@ export default function UsersClient({ initialUsers }: UsersClientProps) {
                         </div>
                       </div>
                     </div>
+
+                    {/* Card issuance needs a real user id, so this only
+                        shows once editing an existing user — not while
+                        the Add form is still creating one. */}
+                    {editingItem && (
+                      <ManagerCardPanel
+                        userId={editingItem.id}
+                        userName={editingItem.name}
+                        role={formRole}
+                        hasCardCode={!!editingItem.hasCardCode}
+                        onCardChange={(hasCardCode) => {
+                          setUsers((prev) => prev.map((u) => (u.id === editingItem.id ? { ...u, hasCardCode } : u)));
+                          setEditingItem((prev) => (prev ? { ...prev, hasCardCode } : prev));
+                        }}
+                      />
+                    )}
                   </div>
                 )}
               </div>

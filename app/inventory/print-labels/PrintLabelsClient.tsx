@@ -238,11 +238,11 @@ export default function PrintLabelsClient({ products }: PrintLabelsClientProps) 
 
                     {showProductPrice && (
                       <div className="font-extrabold text-indigo-700 print:text-black leading-none" style={{ fontSize: `${productPriceSize}px` }}>
-                        Rs {lbl.price.toFixed(2)} <span className="text-[11px] font-bold text-zinc-400 print:text-black">({priceTaxType})</span>
+                        Rs {lbl.price.toFixed(2)} <span className="text-[12px] font-bold text-zinc-400 print:text-black">({priceTaxType})</span>
                       </div>
                     )}
 
-                    <div className="flex gap-2 text-[11px] font-bold text-zinc-450 mt-1 print:text-black">
+                    <div className="flex gap-2 text-[12px] font-bold text-zinc-450 mt-1 print:text-black">
                       {showPackingDate && (
                         <span>Pkg: {lbl.packingDate}</span>
                       )}

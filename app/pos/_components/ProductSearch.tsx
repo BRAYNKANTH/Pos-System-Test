@@ -1,8 +1,45 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useProducts, findProducts } from "@/lib/pos/use-products";
 import { useCartStore } from "@/lib/pos/cart-store";
-import { Grid, Tag, Check, Search, Barcode, Scale } from "lucide-react";
+import {
+  Grid,
+  Tag,
+  Check,
+  Search,
+  Barcode,
+  Scale,
+  Package,
+  Cog,
+  Settings2,
+  Disc,
+  Gauge,
+  Zap,
+  Droplets,
+  Filter,
+  Car,
+  CircleDot,
+} from "lucide-react";
+
+// Decorative placeholder for the product image slot — there's no product
+// photo anywhere in the schema/catalog yet, so every card rendered with
+// nothing but stacked text and no visual anchor at all, which read as
+// flat/unfinished next to any catalog that shows a picture (even a
+// generic one) per product. Match by category so at least the icon means
+// something; anything uncategorized or unmatched falls back to a plain
+// box icon.
+const CATEGORY_ICONS: Record<string, typeof Package> = {
+  "Engine Components": Cog,
+  "Gear and Clutch Parts": Settings2,
+  "Brake System": Disc,
+  "Suspension and Steering": Gauge,
+  "Electrical Systems": Zap,
+  "Cooling Systems": Droplets,
+  "Filters and Lubricants": Filter,
+  "Body Parts": Car,
+  "Rubber Parts": CircleDot,
+};
 import { parseScaleBarcode, resolveScaleItemPricing, resolveManualWeightPricing } from "@/lib/pos/scale-barcode";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -19,15 +56,15 @@ type Product = {
   isReturnable?: boolean;
   trackSerial?: boolean;
   trackBatch?: boolean;
+  isNetPriceItem?: boolean;
 };
 
 export function ProductSearch({
-  products: propProducts,
 }: {
   products?: Product[];
 }) {
-  const [localProducts, setLocalProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(!propProducts);
+  const [page, setPage] = useState(0);
+  const scans = useRef(Promise.resolve());
   const addItem = useCartStore((s) => s.addItem);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -57,9 +94,8 @@ export function ProductSearch({
   const [scanFeedback, setScanFeedback] = useState<string | null>(null);
   function rejectScan(message: string) {
     setScanFeedback(message);
-    setSearchQuery("");
     refocusScanInput();
-    setTimeout(() => setScanFeedback(null), 2000);
+
   }
 
   // Manual weight entry — for a scale item added by clicking its catalog
@@ -78,54 +114,25 @@ export function ProductSearch({
 
   // Text search query with deferred value for 60fps filtering
   const [searchQuery, setSearchQuery] = useState("");
-  const deferredQuery = useDeferredValue(searchQuery);
 
+  const lookup = useProducts(searchQuery, selectedCategory, selectedBrand, page);
+  const products = lookup.products;
+  const loading = lookup.searching;
+  const filteredProducts = products;
+  const [categories, setCategories] = useState<string[]>([]);
+  const [brands, setBrands] = useState<string[]>([]);
   useEffect(() => {
-    if (propProducts) {
-      // No fetch needed when products arrive via props — turning the
-      // loading flag off immediately, not state derivable during render.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLoading(false);
-      return;
+    const controller = new AbortController();
+    for (const [kind, setter] of [["categories", setCategories], ["brands", setBrands]] as const) {
+      fetch('/api/inventory/' + kind, { signal: controller.signal }).then(r => r.json()).then(body => {
+        if (body.success) setter(body.data.map((x: string | { name: string }) => typeof x === 'string' ? x : x.name));
+      }).catch(() => {});
     }
-    fetch("/api/pos/products")
-      .then((r) => r.json())
-      .then((body) => {
-        if (body.success) setLocalProducts(body.data);
-      })
-      .finally(() => setLoading(false));
-  }, [propProducts]);
-
-  const products = propProducts ?? localProducts;
-
-  // Compute unique categories and brands
-  const categories = useMemo(
-    () => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort(),
-    [products]
-  );
-
-  const brands = useMemo(
-    () => [...new Set(products.map((p) => p.brand).filter((b): b is string => !!b))].sort(),
-    [products]
-  );
-
-  // Filter products based on deferred search query + selected chips
-  const filteredProducts = useMemo(() => {
-    const q = deferredQuery.trim().toLowerCase();
-    return products.filter((p) => {
-      if (selectedCategory && p.category !== selectedCategory) return false;
-      if (selectedBrand && p.brand !== selectedBrand) return false;
-      if (q) {
-        return (
-          p.name.toLowerCase().includes(q) ||
-          p.sku.toLowerCase().includes(q) ||
-          (p.category?.toLowerCase() ?? "").includes(q) ||
-          (p.brand?.toLowerCase() ?? "").includes(q)
-        );
-      }
-      return true;
-    });
-  }, [products, selectedCategory, selectedBrand, deferredQuery]);
+    return () => controller.abort();
+  }, []);
+  const filterKey = JSON.stringify([searchQuery, selectedCategory, selectedBrand]);
+  const [previousFilterKey, setPreviousFilterKey] = useState(filterKey);
+  if (previousFilterKey !== filterKey) { setPreviousFilterKey(filterKey); setPage(0); }
 
   // Add item with brief visual confirmation (green flash for 500ms)
   const handleAddItem = useCallback(
@@ -142,6 +149,7 @@ export function ProductSearch({
         isReturnable: p.isReturnable,
         trackSerial: p.trackSerial,
         trackBatch: p.trackBatch,
+        isNetPriceItem: p.isNetPriceItem,
       });
       setRecentlyAdded((prev) => {
         const next = new Set(prev);
@@ -179,6 +187,12 @@ export function ProductSearch({
     [handleAddItem, setManualWeightInput, setWeighingProduct]
   );
 
+  useEffect(() => {
+    const handle = (e: Event) => addOrPromptForWeight((e as CustomEvent<Product>).detail);
+    window.addEventListener("pos-add-product", handle);
+    return () => window.removeEventListener("pos-add-product", handle);
+  }, [addOrPromptForWeight]);
+
   function confirmManualWeight() {
     if (!weighingProduct) return;
     const weight = Number(manualWeightInput);
@@ -196,72 +210,23 @@ export function ProductSearch({
 
   // Barcode / Fast-scan Enter Handler (with Scale Barcode Parser)
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const q = searchQuery.trim();
-      if (!q) return;
-
-      // 1. Check for variable weight / scale barcode (EAN-13 / UPC-A format)
-      const parsedScale = parseScaleBarcode(q);
-      if (parsedScale.isScaleBarcode && parsedScale.itemCode) {
-        const scaleMatch = products.find(
-          (p) =>
-            p.sku.toLowerCase() === parsedScale.itemCode?.toLowerCase() ||
-            p.sku.toLowerCase().endsWith(parsedScale.itemCode?.toLowerCase() ?? "") ||
-            p.sku.toLowerCase().includes(parsedScale.itemCode?.toLowerCase() ?? "")
-        );
-        if (scaleMatch) {
-          if (scaleMatch.qtyOnHand <= 0) {
-            rejectScan(`${scaleMatch.name} is out of stock`);
-            return;
-          }
-          const pricing = resolveScaleItemPricing({
-            unitPrice: scaleMatch.unitPrice,
-            isWeightBased: scaleMatch.isScaleItem,
-            parsed: parsedScale,
-          });
-          handleAddItem(scaleMatch, {
-            unitPrice: pricing.unitPrice,
-            scaleWeight: pricing.scaleWeight,
-            displayRatePerKg: pricing.displayRatePerKg,
-          });
-          setSearchQuery("");
-          return;
-        }
-        // A recognized scale-barcode format with no matching product is
-        // still a definite failure — don't fall through to a fuzzy
-        // substring match against the raw scale barcode digits.
-        rejectScan("Scale barcode not recognized — no matching product");
-        return;
-      }
-
-      const qLower = q.toLowerCase();
-      // 2. Check exact SKU or name match
-      const exactMatch = products.find(
-        (p) => p.sku.toLowerCase() === qLower || p.name.toLowerCase() === qLower
-      );
-
-      if (exactMatch) {
-        if (exactMatch.qtyOnHand <= 0) {
-          rejectScan(`${exactMatch.name} is out of stock`);
-          return;
-        }
-        addOrPromptForWeight(exactMatch);
-        setSearchQuery("");
-      } else if (filteredProducts.length === 1) {
-        if (filteredProducts[0].qtyOnHand <= 0) {
-          rejectScan(`${filteredProducts[0].name} is out of stock`);
-          return;
-        }
-        addOrPromptForWeight(filteredProducts[0]);
-        setSearchQuery("");
-      } else if (filteredProducts.length === 0) {
-        rejectScan(`No product matches "${q}"`);
-      }
-      // filteredProducts.length > 1: ambiguous text search — leave the
-      // query in place so the cashier can keep narrowing it, or pick
-      // straight from the filtered grid below.
-    }
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    e.preventDefault(); e.stopPropagation();
+    const q = e.currentTarget.value.trim();
+    if (!q) return;
+    setSearchQuery("");
+    scans.current = scans.current.then(async () => {
+      try {
+        const parsed = parseScaleBarcode(q);
+        let result = await findProducts(parsed.isScaleBarcode ? parsed.itemCode! : q, { exact: true });
+        if (!result.products.length && !parsed.isScaleBarcode) result = await findProducts(q);
+        if (result.products.length !== 1) { rejectScan(result.products.length ? 'Multiple matches. Search by exact SKU.' : 'No product matches "' + q + '"'); return; }
+        const product = result.products[0];
+        if (product.qtyOnHand <= 0) { rejectScan(product.name + ' is out of stock'); return; }
+        if (parsed.isScaleBarcode) handleAddItem(product, resolveScaleItemPricing({ unitPrice: product.unitPrice, isWeightBased: product.isScaleItem, parsed }));
+        else addOrPromptForWeight(product);
+      } catch (error) { rejectScan(error instanceof Error ? error.message : 'Product lookup failed. Retry the scan.'); }
+    });
   };
 
   return (
@@ -274,10 +239,11 @@ export function ProductSearch({
           <input
             ref={searchInputRef}
             type="search"
+            aria-label="Scan barcode or search products"
             id="pos-catalog-search-input"
             placeholder="Scan Barcode or Search Product / SKU... (F1)"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setScanFeedback(null); }}
             onKeyDown={handleSearchKeyDown}
             className={`h-10 w-full rounded-lg border pl-10 pr-4 text-sm font-medium outline-none transition focus:ring-2 dark:bg-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 ${
               scanFeedback
@@ -286,34 +252,37 @@ export function ProductSearch({
             }`}
           />
           {scanFeedback && (
-            <span className="absolute left-10 right-3 top-1/2 -translate-y-1/2 truncate text-xs font-bold text-red-600 dark:text-red-400 pointer-events-none bg-red-50 dark:bg-zinc-900">
+            <span role="status" className="block mt-2 text-xs font-bold text-red-600 dark:text-red-400">
               {scanFeedback}
             </span>
           )}
         </div>
 
-        {/* ── Filter Buttons ──────────────────────────────────────────────── */}
-        <div className="flex gap-2">
+        {/* ── Filter Buttons — bold filled blocks, not quiet text pills.
+            These are the primary way a cashier narrows the catalog on a
+            touchscreen, so they get the same visual weight as the Pay
+            button rather than reading as a minor, easy-to-miss filter. */}
+        <div className="flex gap-2.5">
           <button
             onClick={() => setActiveFilterTab(activeFilterTab === "category" ? null : "category")}
-            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 px-3 text-xs font-bold transition shadow-2xs ${
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-bold transition shadow-sm ${
               activeFilterTab === "category"
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-850 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                ? "bg-indigo-750 text-white ring-2 ring-indigo-300 dark:ring-indigo-800"
+                : "bg-indigo-650 text-white hover:bg-indigo-750"
             }`}
           >
-            <Grid className="h-3.5 w-3.5" />
-            Categories ({categories.length})
+            <Grid className="h-4.5 w-4.5" />
+            Category ({categories.length})
           </button>
           <button
             onClick={() => setActiveFilterTab(activeFilterTab === "brand" ? null : "brand")}
-            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 px-3 text-xs font-bold transition shadow-2xs ${
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-bold transition shadow-sm ${
               activeFilterTab === "brand"
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-850 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                ? "bg-indigo-750 text-white ring-2 ring-indigo-300 dark:ring-indigo-800"
+                : "bg-indigo-650 text-white hover:bg-indigo-750"
             }`}
           >
-            <Tag className="h-3.5 w-3.5" />
+            <Tag className="h-4.5 w-4.5" />
             Brands ({brands.length})
           </button>
           {(selectedCategory || selectedBrand) && (
@@ -322,9 +291,9 @@ export function ProductSearch({
                 setSelectedCategory(null);
                 setSelectedBrand(null);
               }}
-              className="rounded-lg bg-red-50 text-red-600 px-2.5 py-1 text-xs font-bold hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 transition"
+              className="rounded-xl bg-red-50 text-red-600 px-3.5 py-3 text-sm font-bold hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 transition shrink-0"
             >
-              Reset Filters
+              Reset
             </button>
           )}
         </div>
@@ -332,10 +301,10 @@ export function ProductSearch({
 
       {/* ── Category Chips ────────────────────────────────────────────────── */}
       {activeFilterTab === "category" && categories.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin rounded-lg bg-zinc-50 p-2 dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-800 shrink-0">
+        <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin rounded-lg bg-zinc-50 p-2.5 dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-800 shrink-0">
           <button
             onClick={() => setSelectedCategory(null)}
-            className={`rounded-md px-2.5 py-1 text-xs font-bold shrink-0 transition ${
+            className={`rounded-lg px-3 py-1.5 text-[13px] font-bold shrink-0 transition ${
               selectedCategory === null
                 ? "bg-indigo-600 text-white"
                 : "bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700"
@@ -347,7 +316,7 @@ export function ProductSearch({
             <button
               key={c}
               onClick={() => setSelectedCategory(selectedCategory === c ? null : c)}
-              className={`rounded-md px-2.5 py-1 text-xs font-semibold shrink-0 transition ${
+              className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold shrink-0 transition ${
                 selectedCategory === c
                   ? "bg-indigo-600 text-white"
                   : "bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700"
@@ -361,10 +330,10 @@ export function ProductSearch({
 
       {/* ── Brand Chips ───────────────────────────────────────────────────── */}
       {activeFilterTab === "brand" && brands.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin rounded-lg bg-zinc-50 p-2 dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-800 shrink-0">
+        <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin rounded-lg bg-zinc-50 p-2.5 dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-800 shrink-0">
           <button
             onClick={() => setSelectedBrand(null)}
-            className={`rounded-md px-2.5 py-1 text-xs font-bold shrink-0 transition ${
+            className={`rounded-lg px-3 py-1.5 text-[13px] font-bold shrink-0 transition ${
               selectedBrand === null
                 ? "bg-indigo-600 text-white"
                 : "bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700"
@@ -376,7 +345,7 @@ export function ProductSearch({
             <button
               key={b}
               onClick={() => setSelectedBrand(selectedBrand === b ? null : b)}
-              className={`rounded-md px-2.5 py-1 text-xs font-semibold shrink-0 transition ${
+              className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold shrink-0 transition ${
                 selectedBrand === b
                   ? "bg-indigo-600 text-white"
                   : "bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700"
@@ -389,6 +358,12 @@ export function ProductSearch({
       )}
 
       {/* ── Product Catalog Grid (Scroll Area) ────────────────────────────── */}
+      {lookup.error && <p role="alert" className="text-red-700">{lookup.error.message} <button className="underline" onClick={() => void lookup.refetch()}>Retry</button></p>}
+      <nav aria-label="Product pages" className="flex items-center justify-between gap-3">
+        <button disabled={page === 0 || loading} onClick={() => setPage(p => p - 1)} className="rounded border px-3 py-2">Previous</button>
+        <span role="status">Page {page + 1}{loading ? ' ? Loading?' : ''}</span>
+        <button disabled={!lookup.hasMore || loading} onClick={() => setPage(p => p + 1)} className="rounded border px-3 py-2">Next</button>
+      </nav>
       <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin min-h-0">
         {loading && (
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4">
@@ -405,11 +380,12 @@ export function ProductSearch({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4 pb-2">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 pb-2">
           {filteredProducts.map((p) => {
             const hasStock = p.qtyOnHand > 0;
             const added = recentlyAdded.has(p.sku);
             const unitSuffix = p.isScaleItem ? "kg" : "pcs";
+            const CategoryIcon = (p.category && CATEGORY_ICONS[p.category]) || Package;
 
             return (
               <button
@@ -423,32 +399,37 @@ export function ProductSearch({
                     : "border-zinc-200 bg-white hover:border-indigo-400 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-500"
                 } disabled:cursor-not-allowed disabled:opacity-40 select-none`}
               >
-                {/* Top: Name and Stock Indicator */}
+                {/* Image placeholder — no product photos exist in the
+                    catalog yet, but every card still needs a visual
+                    anchor instead of just stacked text against white. */}
+                <div className="relative mb-2.5 flex h-16 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-zinc-800 dark:to-zinc-800/60">
+                  <CategoryIcon className="h-7 w-7 text-indigo-400 dark:text-indigo-500" strokeWidth={1.5} />
+                  {added && (
+                    <span className="absolute top-1.5 right-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white animate-scale-in">
+                      <Check className="h-3 w-3" />
+                    </span>
+                  )}
+                </div>
+
+                {/* Name, SKU, badges */}
                 <div>
-                  <div className="flex items-start justify-between gap-1 mb-1">
-                    <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 line-clamp-2 leading-tight">
-                      {p.name}
-                    </p>
-                    {added && (
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white animate-scale-in">
-                        <Check className="h-3 w-3" />
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <p className="text-[10px] font-mono text-zinc-400">{p.sku}</p>
+                  <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100 line-clamp-2 leading-tight">
+                    {p.name}
+                  </p>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                    <p className="text-[12px] font-mono text-zinc-400">{p.sku}</p>
                     {p.isScaleItem && (
-                      <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.2 text-[9px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                      <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.2 text-[11px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
                         <Scale className="h-2.5 w-2.5" /> Scale
                       </span>
                     )}
                     {p.isReturnable === false && (
-                      <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.2 text-[9px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                      <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.2 text-[11px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                         Final Sale
                       </span>
                     )}
                     {p.trackSerial && (
-                      <span className="rounded px-1 py-0.2 text-[9px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
+                      <span className="rounded px-1 py-0.2 text-[11px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
                         Serial
                       </span>
                     )}
@@ -457,10 +438,10 @@ export function ProductSearch({
 
                 {/* Bottom: Price & Stock Tag */}
                 <div className="mt-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-                  <span className="text-xs font-extrabold font-mono tabular-nums text-indigo-700 dark:text-indigo-400">
+                  <span className="text-sm font-extrabold font-mono tabular-nums text-indigo-700 dark:text-indigo-400">
                     Rs {p.unitPrice.toFixed(2)}{p.isScaleItem ? "/kg" : ""}
                   </span>
-                  <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded ${
+                  <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded ${
                     hasStock
                       ? "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
                       : "bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400"

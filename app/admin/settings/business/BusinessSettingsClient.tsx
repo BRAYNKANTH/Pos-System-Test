@@ -5,32 +5,13 @@ import type { LucideIcon } from "lucide-react";
 import {
   Settings,
   ShieldAlert,
-  Percent,
-  Calendar,
-  Globe,
-  Upload,
-  Clock,
   Briefcase,
   HelpCircle,
   Keyboard,
-  FileText,
-  DollarSign,
   Laptop,
 } from "lucide-react";
 
-type TabId =
-  | "business"
-  | "tax"
-  | "product"
-  | "contact"
-  | "sale"
-  | "pos"
-  | "display"
-  | "purchases"
-  | "payment"
-  | "dashboard"
-  | "system"
-  | "prefixes";
+type TabId = "business" | "tax" | "product" | "pos";
 
 export default function BusinessSettingsClient() {
   const [activeTab, setActiveTab] = useState<TabId>("business");
@@ -40,20 +21,18 @@ export default function BusinessSettingsClient() {
     { id: "business", label: "Business", icon: Briefcase },
     { id: "tax", label: "Tax", icon: ShieldAlert },
     { id: "product", label: "Product", icon: Settings },
-    { id: "contact", label: "Contact", icon: Globe },
-    { id: "sale", label: "Sale", icon: DollarSign },
     { id: "pos", label: "POS", icon: Laptop },
-    { id: "display", label: "Display Screen", icon: Laptop },
-    { id: "purchases", label: "Purchases", icon: Briefcase },
-    { id: "payment", label: "Payment", icon: DollarSign },
-    { id: "dashboard", label: "Dashboard", icon: Percent },
-    { id: "system", label: "System", icon: Settings },
-    { id: "prefixes", label: "Prefixes", icon: FileText },
   ];
 
   // --- STATE FOR TABS ---
   // Business State
   const [bizName, setBizName] = useState("");
+  // Base64 data URL, same storage approach as Invoice Settings' letterhead
+  // image (see InvoiceSettingsClient's handleLetterHeadUpload) — the
+  // "Upload Logo" button used to just show a fake "Logo uploader window
+  // opened." alert with no file picker, no state, and nothing saved.
+  const [bizLogo, setBizLogo] = useState<string | null>(null);
+  const [bizLogoError, setBizLogoError] = useState("");
   const [bizStartDate, setBizStartDate] = useState("2026-04-27");
   const [bizProfitPct, setBizProfitPct] = useState("25.00");
   const [bizCurrency, setBizCurrency] = useState("Sri Lanka - Rupees(LKR)");
@@ -114,6 +93,7 @@ export default function BusinessSettingsClient() {
         if (!res.success) return;
         const d = res.data ?? {};
         if (d.bizName) setBizName(d.bizName);
+        if (d.bizLogo) setBizLogo(d.bizLogo);
         if (d.bizStartDate) setBizStartDate(d.bizStartDate);
         if (d.bizProfitPct) setBizProfitPct(d.bizProfitPct);
         if (d.bizCurrency) setBizCurrency(d.bizCurrency);
@@ -170,6 +150,7 @@ export default function BusinessSettingsClient() {
     e.preventDefault();
     const data = {
       bizName,
+      bizLogo,
       bizStartDate,
       bizProfitPct,
       bizCurrency,
@@ -232,6 +213,30 @@ export default function BusinessSettingsClient() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Mirrors Invoice Settings' letterhead upload — read the file to a
+  // base64 data URL and hold it in state; it's persisted the same way as
+  // every other field on this form, via the Save button's PATCH above.
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBizLogoError("");
+
+    if (!["image/jpeg", "image/png", "image/gif"].includes(file.type)) {
+      setBizLogoError("Only JPEG, GIF, or PNG images are allowed.");
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setBizLogoError("Image must be 1 MB or smaller.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => setBizLogo(reader.result as string);
+    reader.onerror = () => setBizLogoError("Failed to read the file. Please try again.");
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -354,19 +359,27 @@ export default function BusinessSettingsClient() {
 
               <div>
                 <label className="block text-xs font-extrabold text-zinc-700 uppercase tracking-wider mb-1.5">Upload Logo:</label>
-                <div className="flex gap-2">
-                  <div className="h-10 flex-1 border border-dashed border-zinc-300 rounded flex items-center px-3 text-zinc-400 text-xs truncate">
-                    Browse and select business logo
+                {bizLogo && (
+                  <div className="mb-2 flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- base64 data URL, not a static/remote asset next/image can optimize */}
+                    <img src={bizLogo} alt="Business logo preview" className="h-14 w-auto rounded border border-zinc-200 object-contain bg-white" />
+                    <button
+                      type="button"
+                      onClick={() => setBizLogo(null)}
+                      className="text-xs font-bold text-red-650 hover:text-red-750 hover:underline"
+                    >
+                      Remove
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => alert("Logo uploader window opened.")}
-                    className="bg-indigo-600 text-white h-10 px-4 rounded font-bold text-xs flex items-center gap-1.5 shadow-sm"
-                  >
-                    <Upload className="h-3.5 w-3.5" /> Browse..
-                  </button>
-                </div>
-                <span className="text-xs text-zinc-400 mt-1 block">Previous logo (if exists) will be replaced</span>
+                )}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif"
+                  onChange={handleLogoUpload}
+                  className="block w-full text-xs text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                />
+                {bizLogoError && <p className="text-xs text-red-650 font-semibold mt-1">{bizLogoError}</p>}
+                <span className="text-xs text-zinc-400 mt-1 block">Previous logo (if exists) will be replaced — saved with the rest of this form.</span>
               </div>
 
               <div>
@@ -856,19 +869,6 @@ export default function BusinessSettingsClient() {
             </div>
           )}
 
-          {/* FALLBACK TABS FOR OTHER TAB LISTINGS */}
-          {!["business", "tax", "product", "pos"].includes(activeTab) && (
-            <div className="space-y-4 max-w-lg">
-              <h3 className="font-extrabold text-sm text-zinc-800 uppercase tracking-wide capitalize">{activeTab} Settings</h3>
-              <p className="text-xs text-zinc-450">
-                Configure global defaults for the <span className="font-bold text-indigo-700">{activeTab}</span> component module here. These settings control automatic invoicing, reporting limits, and background POS sync parameters.
-              </p>
-              <div className="border border-dashed border-zinc-250 p-6 rounded-md flex items-center justify-center text-zinc-400 text-xs font-bold uppercase tracking-wider bg-zinc-50">
-                Additional settings module - fully mapped and active
-              </div>
-            </div>
-          )}
-
           {/* SAVE BUTTON BAR INSIDE RIGHT PANEL */}
           <div className="border-t border-zinc-250 pt-6 mt-8 flex justify-end">
             <button
@@ -883,18 +883,6 @@ export default function BusinessSettingsClient() {
         </div>
 
       </form>
-
-      {/* SAVE CONTROL BAR */}
-      <div className="flex justify-end p-2 bg-zinc-50 rounded-lg border border-zinc-200 shadow-sm">
-        <button
-          type="submit"
-          onClick={handleUpdateSettings}
-          disabled={saving}
-          className="bg-indigo-650 hover:bg-indigo-750 text-white px-8 py-3 rounded-lg text-xs font-extrabold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saving ? "Saving..." : "Save Settings"}
-        </button>
-      </div>
 
     </div>
   );

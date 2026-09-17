@@ -30,6 +30,7 @@ export async function deductStockOnSale(
   sku: string,
   qty: number,
 ) {
+  if (!Number.isSafeInteger(qty) || qty <= 0) throw new Error("Sale quantity must be a positive whole number");
   const result = await tx.inventoryItem.updateMany({
     where: { sku, qtyOnHand: { gte: qty } },
     data: { qtyOnHand: { decrement: qty } },
@@ -83,7 +84,7 @@ export async function increaseStockOnReceipt(
   sku: string,
   qty: number,
   options?: {
-    batch?: { batchNumber: string; expiryDate?: Date; costPrice?: number };
+    batch?: { batchNumber: string; expiryDate?: Date; costPrice?: number; unitPrice?: number };
     serialNumbers?: string[];
   },
 ) {
@@ -109,7 +110,15 @@ export async function increaseStockOnReceipt(
     await creditDefaultLocation(tx, sku, qty);
 
     if (options?.batch) {
-      await restockBatch(tx, sku, qty, options.batch.batchNumber, options.batch.expiryDate, options.batch.costPrice);
+      await restockBatch(
+        tx,
+        sku,
+        qty,
+        options.batch.batchNumber,
+        options.batch.expiryDate,
+        options.batch.costPrice,
+        options.batch.unitPrice,
+      );
     }
     if (options?.serialNumbers && options.serialNumbers.length > 0) {
       await registerSerials(tx, sku, options.serialNumbers);

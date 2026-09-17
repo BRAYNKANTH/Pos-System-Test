@@ -45,13 +45,15 @@ export async function deductBatchStock(
     const batch = await tx.itemBatch.findUnique({
       where: { sku_batchNumber: { sku, batchNumber: specifiedBatchNumber } },
     });
-    if (batch && batch.qtyOnHand >= qty) {
-      await tx.itemBatch.update({
-        where: { id: batch.id },
+    if (batch && batch.qtyOnHand >= qty && (!batch.expiryDate || batch.expiryDate > new Date())) {
+      const updated = await tx.itemBatch.updateMany({
+        where: { id: batch.id, qtyOnHand: { gte: qty } },
         data: { qtyOnHand: { decrement: qty } },
       });
+      if (!updated.count) throw new InsufficientBatchStockError(sku);
       return;
     }
+    throw new InsufficientBatchStockError(sku);
     // Falls through to FIFO across all batches when the named batch
     // doesn't have enough on its own (e.g. selling the last few units of
     // one lot plus the start of the next) — nothing has been deducted
@@ -92,6 +94,7 @@ export async function restockBatch(
   batchNumber: string,
   expiryDate?: Date,
   costPrice?: number,
+  unitPrice?: number,
 ) {
   if (qty <= 0) return;
 
@@ -103,11 +106,13 @@ export async function restockBatch(
       qtyOnHand: qty,
       expiryDate,
       costPrice,
+      unitPrice,
     },
     update: {
       qtyOnHand: { increment: qty },
       ...(expiryDate ? { expiryDate } : {}),
       ...(costPrice !== undefined ? { costPrice } : {}),
+      ...(unitPrice !== undefined ? { unitPrice } : {}),
     },
   });
 }

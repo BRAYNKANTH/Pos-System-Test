@@ -15,6 +15,11 @@ export type CartLineInput = {
   scaleWeight?: number;
   /** Allow selling below cost with supervisor authorization */
   allowBelowCost?: boolean;
+  /** Already sold at a fixed/net price — sits out of a cart-scope
+   * discount's proportional split (see applyDiscount below). A
+   * line-scope discount or price override still applies normally; this
+   * only opts the line out of the cart-wide one. */
+  isNetPriceItem?: boolean;
 };
 
 export type CalculatedLine = {
@@ -176,15 +181,22 @@ export function applyDiscount(
     });
   }
 
-  // cart scope: distribute proportionally across lines by pre-discount value
-  const cartTotal = items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
-  if (cartTotal <= 0) return items;
+  // cart scope: distribute proportionally across lines by pre-discount
+  // value — but only across lines that actually take a discretionary
+  // discount. isNetPriceItem lines (already priced net/fixed — e.g. a
+  // regulated or fixed-margin item) sit out entirely: they're excluded
+  // from both the eligible pool total (the % base and the amount cap)
+  // and from receiving any share, same as if they weren't in the cart
+  // for this calculation.
+  const eligibleTotal = items.reduce((sum, i) => (i.isNetPriceItem ? sum : sum + i.qty * i.unitPrice), 0);
+  if (eligibleTotal <= 0) return items;
   const cartDiscountAmount =
-    discount.type === "percent" ? cartTotal * (discount.value / 100) : discount.value;
+    discount.type === "percent" ? eligibleTotal * (discount.value / 100) : discount.value;
 
   return items.map((item) => {
     const lineTotal = item.qty * item.unitPrice;
-    const share = round2((lineTotal / cartTotal) * Math.min(cartDiscountAmount, cartTotal));
+    if (item.isNetPriceItem) return item;
+    const share = round2((lineTotal / eligibleTotal) * Math.min(cartDiscountAmount, eligibleTotal));
     const combined = (item.discount ?? 0) + share;
 
     const { discount: finalDiscount } = clampDiscountWithCostFloor({
@@ -206,6 +218,7 @@ export type LineWithOverrides = {
   purchasePrice?: number;
   scaleWeight?: number;
   allowBelowCost?: boolean;
+  isNetPriceItem?: boolean;
   priceOverride?: { newPrice: number; reason: string } | null;
   lineDiscount?: { type: "percent" | "amount"; value: number } | null;
 };
@@ -219,6 +232,7 @@ export function applyLineOverridesAndDiscounts(lines: LineWithOverrides[]): Cart
     purchasePrice: l.purchasePrice,
     scaleWeight: l.scaleWeight,
     allowBelowCost: l.allowBelowCost,
+    isNetPriceItem: l.isNetPriceItem,
   }));
   lines.forEach((l, idx) => {
     if (!l.lineDiscount) return;

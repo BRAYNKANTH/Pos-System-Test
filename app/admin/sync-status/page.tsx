@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { redirect } from "next/navigation";
 import { RetryFailedButton } from "./RetryFailedButton";
+import { PullPaymentsButton } from "./PullPaymentsButton";
 
 export default async function SyncStatusPage() {
   const user = await getCurrentUser();
@@ -37,10 +38,21 @@ export default async function SyncStatusPage() {
     );
   }
 
-  const jobs = await prisma.syncQueueJob.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+  const [jobs, pulledPayments] = await Promise.all([
+    prisma.syncQueueJob.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    // The pull direction leaves its trail as PaymentTender rows tagged
+    // "zoho_payment" (see pullInvoicePayments) rather than a SyncQueueJob
+    // — those only ever represent the push direction.
+    prisma.paymentTender.findMany({
+      where: { method: "zoho_payment" },
+      orderBy: { id: "desc" },
+      take: 20,
+      include: { transaction: { select: { id: true, zohoInvoiceId: true } } },
+    }),
+  ]);
 
   const counts = {
     pending: jobs.filter((j) => j.status === "pending").length,
@@ -73,8 +85,50 @@ export default async function SyncStatusPage() {
         <RetryFailedButton failedCount={counts.failed} />
       </div>
 
+      {/* ── Pull direction (Zoho → POS) ──────────────────────────────────
+          Everything above this is push (POS → Zoho, one row per
+          SyncQueueJob). This is the other way: a payment someone recorded
+          directly in Zoho Books against a synced invoice, pulled back so
+          the invoice stops showing as due here. Polled — there's no
+          webhook wired up (needs a public HTTPS URL Zoho can reach). */}
+      <div className="mt-2 rounded-md border border-zinc-200 dark:border-zinc-800 p-4 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">Payments Pulled from Zoho</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            A payment recorded against a synced invoice directly in Zoho Books (e.g. a bank transfer settling an
+            on-account sale) — checked on demand below, and automatically every ~minute by the worker process.
+          </p>
+        </div>
+        <PullPaymentsButton />
+        {pulledPayments.length > 0 && (
+          <div className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+           <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead className="bg-zinc-50 text-left text-xs text-zinc-500 dark:bg-zinc-900">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Transaction</th>
+                  <th className="px-4 py-2 font-medium">Zoho Invoice</th>
+                  <th className="px-4 py-2 font-medium text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {pulledPayments.map((p) => (
+                  <tr key={p.id}>
+                    <td className="px-4 py-2 font-mono text-xs">{p.transactionId.slice(-8)}</td>
+                    <td className="px-4 py-2 text-xs text-zinc-400">{p.transaction.zohoInvoiceId ?? "—"}</td>
+                    <td className="px-4 py-2 text-right font-mono">Rs {Number(p.amount).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+           </div>
+          </div>
+        )}
+      </div>
+
       <div className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-sm">
+       <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="bg-zinc-50 text-left text-xs text-zinc-500 dark:bg-zinc-900">
             <tr>
               <th className="px-4 py-2 font-medium">Entity</th>
@@ -114,6 +168,7 @@ export default async function SyncStatusPage() {
             ))}
           </tbody>
         </table>
+       </div>
       </div>
     </main>
   );

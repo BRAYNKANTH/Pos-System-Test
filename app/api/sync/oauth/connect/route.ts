@@ -1,7 +1,8 @@
+import { randomBytes } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
-import { buildAuthorizeUrl, isDataCenter } from "@/lib/sync/zohoClient";
+import { buildAuthorizeUrl, isDataCenter, OAUTH_STATE_COOKIE, OAUTH_STATE_MAX_AGE_S } from "@/lib/sync/zohoClient";
 import { isModuleEnabled } from "@/lib/plan";
 
 // connectZohoOAuth — GET /api/sync/oauth/connect?dc=com — starts the
@@ -30,8 +31,17 @@ export async function GET(req: NextRequest) {
   const dataCenter = isDataCenter(dcParam) ? dcParam : "com";
 
   try {
-    const url = buildAuthorizeUrl(dataCenter);
-    return NextResponse.redirect(url);
+    const nonce = randomBytes(24).toString("hex");
+    const url = buildAuthorizeUrl(dataCenter, nonce);
+    const res = NextResponse.redirect(url);
+    res.cookies.set(OAUTH_STATE_COOKIE, nonce, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: OAUTH_STATE_MAX_AGE_S,
+      path: "/api/sync/oauth",
+    });
+    return res;
   } catch (err) {
     return NextResponse.json(
       { success: false, error: { code: "ZOHO_NOT_CONFIGURED", message: (err as Error).message } },

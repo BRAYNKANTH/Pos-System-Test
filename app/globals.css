@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+.pos-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+body:has(dialog[open]) { overflow: hidden; }
+button, a, input, select, textarea { scroll-margin-block: 5rem; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 :root {
   --background: #f6f6f8;
   --foreground: #18181b;
@@ -64,8 +76,18 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Was 15px. Bumped once more, and this time as a root-level change
+   instead of hunting file-by-file — every text-* utility in the app is
+   sized in rem, so this scales all of them proportionally at once,
+   including every screen that hadn't been manually touched yet
+   (Reports, Purchases, Customers, Suppliers, every Settings page).
+   Tailwind's spacing scale (h-*, p-*, gap-*, w-*) is rem-based too, so
+   this grows layout sizing right along with text instead of text
+   outgrowing its container — the POS terminal (the most vertically
+   cramped screen, viewport-height-locked) was checked after this change
+   specifically because it had the least room to spare. */
 html {
-  font-size: 15px;
+  font-size: 16px;
 }
 
 body {
@@ -181,4 +203,38 @@ body {
     background: white !important;
     color: black !important;
   }
+}
+
+/* ─── Manager Access Card Print Layout ────────────────────────────────────
+   Same isolation trick as .printable-receipt above, sized to a standard
+   ID-1 card (85.6mm × 54mm — a credit-card/badge blank) instead of an
+   80mm thermal strip, for printing a physical scannable manager card
+   (see app/admin/users/_ManagerCardPanel.tsx). */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-card, .printable-card * {
+    visibility: visible;
+  }
+  .printable-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 85.6mm;
+    height: 54mm;
+    margin: 0;
+    padding: 4mm;
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  .pos-workspace { height: auto !important; min-height: calc(100dvh - 4rem); }
+  .pos-workspace > main { overflow: visible; flex: none; }
+  .pos-workspace > main > * { min-height: 28rem; overflow: visible; }
+  .pos-workspace > header { flex-wrap: wrap; height: auto; }
 }

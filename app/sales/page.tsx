@@ -4,7 +4,6 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { SalesActionsMenu } from "./_SalesActionsMenu";
-import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -12,16 +11,11 @@ export default async function AllSalesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  // Neither depends on the other — run them concurrently instead of
-  // paying two sequential DB round trips.
-  const [transactions, hasRequestPermission] = await Promise.all([
-    prisma.transaction.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 200,
-      include: { customer: true, tenders: true, bill: true },
-    }),
-    checkPermission(user.role, PERMISSIONS.BILLS_REQUEST_CHANGE),
-  ]);
+  const transactions = await prisma.transaction.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    include: { customer: true, tenders: true },
+  });
 
   const fmt = (n: number) =>
     `Rs ${n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -42,8 +36,9 @@ export default async function AllSalesPage() {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-950">
-        <table className="w-full text-left text-xs table-fixed">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400 select-none">
+       <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-xs table-fixed">
+          <thead className="border-b border-zinc-200 bg-zinc-50 text-[12px] font-bold uppercase tracking-wider text-zinc-500 dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-400 select-none">
             <tr>
               <th className="px-4 py-3 w-[20%]">Invoice & Time</th>
               <th className="px-4 py-3 w-[22%]">Customer</th>
@@ -58,7 +53,7 @@ export default async function AllSalesPage() {
             {transactions.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-16 text-center text-zinc-400">
-                  No transaction records found.
+                  <span className="sticky left-1/2 inline-block w-fit -translate-x-1/2">No transaction records found.</span>
                 </td>
               </tr>
             )}
@@ -67,7 +62,6 @@ export default async function AllSalesPage() {
               const total = Number(tx.total);
               const due = Math.max(0, Math.round((total - totalPaid) * 100) / 100);
               const voided = tx.status === "voided";
-              const canRequestChange = !voided && hasRequestPermission && !!tx.bill;
 
               return (
                 <tr key={tx.id} className="hover:bg-zinc-50/70 dark:hover:bg-zinc-900/50 transition">
@@ -76,7 +70,7 @@ export default async function AllSalesPage() {
                     <p className="font-mono font-bold text-zinc-900 dark:text-white uppercase tracking-wide">
                       #{tx.id.slice(-8)}
                     </p>
-                    <p className="text-[10.5px] text-zinc-400 font-mono mt-0.5">
+                    <p className="text-[12px] text-zinc-400 font-mono mt-0.5">
                       {tx.createdAt.toLocaleDateString("en-GB")} {tx.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </td>
@@ -86,14 +80,14 @@ export default async function AllSalesPage() {
                     <p className="font-bold text-zinc-800 dark:text-zinc-200 truncate">
                       {tx.customer?.name ?? "Walk-In Customer"}
                     </p>
-                    <p className="text-[10.5px] text-zinc-400 font-mono">
+                    <p className="text-[12px] text-zinc-400 font-mono">
                       {tx.customer?.phone ?? "No phone"}
                     </p>
                   </td>
 
                   {/* Register Location */}
                   <td className="px-3 py-3">
-                    <span className="inline-flex items-center rounded-md bg-zinc-100 px-2 py-0.5 text-[10.5px] font-semibold text-zinc-750 dark:bg-zinc-850 dark:text-zinc-300">
+                    <span className="inline-flex items-center rounded-md bg-zinc-100 px-2 py-0.5 text-[12px] font-semibold text-zinc-750 dark:bg-zinc-850 dark:text-zinc-300">
                       {tx.registerId}
                     </span>
                   </td>
@@ -101,15 +95,15 @@ export default async function AllSalesPage() {
                   {/* Accessible Status Badge */}
                   <td className="px-3 py-3">
                     {voided ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-[11px] font-bold text-red-700 dark:bg-red-950/30 dark:text-red-400">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-[12px] font-bold text-red-700 dark:bg-red-950/30 dark:text-red-400">
                         ✕ Voided
                       </span>
                     ) : due > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[12px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
                         ⏳ Due (Rs {due.toFixed(0)})
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[12px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
                         ✓ Paid
                       </span>
                     )}
@@ -126,7 +120,7 @@ export default async function AllSalesPage() {
                       {fmt(total)}
                     </p>
                     {due > 0 && (
-                      <p className="text-[10px] font-mono text-amber-600 font-bold tabular-nums">
+                      <p className="text-[11px] font-mono text-amber-600 font-bold tabular-nums">
                         Due: {fmt(due)}
                       </p>
                     )}
@@ -136,9 +130,7 @@ export default async function AllSalesPage() {
                   <td className="px-3 py-3 text-center">
                     <SalesActionsMenu
                       transactionId={tx.id}
-                      billId={tx.bill?.id}
                       canVoid={!voided && user.role === "ADMIN"}
-                      canRequestChange={canRequestChange}
                     />
                   </td>
                 </tr>
@@ -146,6 +138,7 @@ export default async function AllSalesPage() {
             })}
           </tbody>
         </table>
+       </div>
       </div>
     </main>
   );

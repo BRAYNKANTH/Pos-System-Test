@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
   const batchNumber = typeof body?.batchNumber === "string" && body.batchNumber.trim() ? body.batchNumber.trim() : undefined;
   const expiryDate = typeof body?.expiryDate === "string" && body.expiryDate ? new Date(body.expiryDate) : undefined;
   const costPrice = Number.isFinite(Number(body?.costPrice)) && body?.costPrice !== undefined ? Number(body.costPrice) : undefined;
+  // The selling price for this specific batch — omit (or send the same
+  // value as the catalog price) when this batch should just sell at
+  // whatever the product's normal price is; see ItemBatch.unitPrice's docs.
+  const batchUnitPrice = Number.isFinite(Number(body?.batchUnitPrice)) && body?.batchUnitPrice !== undefined ? Number(body.batchUnitPrice) : undefined;
 
   if (item.trackBatch && !batchNumber) {
     return apiError("BATCH_REQUIRED", `${sku} is batch/lot-tracked — a batch number is required to receive stock`, { status: 400 });
@@ -55,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await increaseStockOnReceipt(sku, qty, {
-      batch: batchNumber ? { batchNumber, expiryDate, costPrice } : undefined,
+      batch: batchNumber ? { batchNumber, expiryDate, costPrice, unitPrice: batchUnitPrice } : undefined,
       serialNumbers: serialNumbers.length > 0 ? serialNumbers : undefined,
     });
     return apiSuccess({ sku, qty });

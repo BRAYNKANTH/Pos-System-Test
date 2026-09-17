@@ -180,7 +180,7 @@ export default function GiftCardsClient() {
                       </td>
                       <td className="px-5 py-4">
                         <span
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase border ${
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold uppercase border ${
                             card.status === "active" && !isDepleted
                               ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400"
                               : "bg-zinc-100 text-zinc-600 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-400"
@@ -215,7 +215,7 @@ export default function GiftCardsClient() {
       {/* Modal: Issue Gift Card */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5">
+          <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5">
             <div className="flex justify-between items-center border-b border-zinc-100 dark:border-zinc-800 pb-3">
               <h3 className="font-extrabold text-base text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                 <Gift className="h-5 w-5 text-indigo-600" /> Issue Gift Voucher
@@ -300,7 +300,7 @@ export default function GiftCardsClient() {
       {/* Printable Slip Preview */}
       {printCard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fade-in print:p-0 print:bg-white">
-          <div className="bg-white rounded-2xl border border-zinc-200 p-6 w-full max-w-sm shadow-2xl space-y-4 print:border-0 print:shadow-none print:w-full">
+          <div className="bg-white rounded-2xl border border-zinc-200 p-6 w-full max-w-md shadow-2xl space-y-4 print:border-0 print:shadow-none print:w-full">
             <div className="text-center space-y-1 border-b border-dashed border-zinc-300 pb-3">
               <h3 className="font-extrabold text-sm uppercase tracking-wider text-indigo-700">GIFT VOUCHER</h3>
               <p className="text-xs font-mono font-bold text-zinc-900">{printCard.code}</p>
@@ -312,12 +312,12 @@ export default function GiftCardsClient() {
                 Rs {Number(printCard.initialBalance).toFixed(2)}
               </p>
               {printCard.notes && <p className="text-xs text-zinc-500">Issued to: {printCard.notes}</p>}
-              <p className="text-[11px] text-zinc-400">
+              <p className="text-[12px] text-zinc-400">
                 Valid until: {printCard.expiresAt ? new Date(printCard.expiresAt).toLocaleDateString() : "No expiry"}
               </p>
             </div>
 
-            <div className="border-t border-dashed border-zinc-300 pt-3 text-center text-[10px] text-zinc-400">
+            <div className="border-t border-dashed border-zinc-300 pt-3 text-center text-[11px] text-zinc-400">
               Present this voucher code at POS checkout to redeem balance.
             </div>
 

@@ -99,7 +99,7 @@ export function TaxRatesClient({ initialRates }: { initialRates: TaxRate[] }) {
 
       {formOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-5 space-y-4">
+          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-lg w-full p-5 space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="font-bold text-sm text-zinc-800">{editing ? "Edit Tax Rate" : "Add Tax Rate"}</h3>
               <button onClick={() => setFormOpen(false)} className="text-zinc-400 hover:text-zinc-600">
@@ -195,7 +195,7 @@ export function TaxRatesClient({ initialRates }: { initialRates: TaxRate[] }) {
                   <td className="px-4 py-3.5 font-bold text-zinc-800 flex items-center gap-1.5">
                     {tax.name}
                     {tax.isDefault && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-650 text-[11px] font-bold uppercase">
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-650 text-[12px] font-bold uppercase">
                         <Star className="h-2.5 w-2.5 fill-current" /> Default
                       </span>
                     )}

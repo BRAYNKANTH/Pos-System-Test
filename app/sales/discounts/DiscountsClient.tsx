@@ -204,6 +204,30 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
     }
   };
 
+  // Export/Print — used to just show a fake "Export to X completed."
+  // alert regardless of which button was clicked, with no file ever
+  // produced. Real CSV export + real print now, matching the pattern
+  // already used on the Products list.
+  const handleExportCSV = () => {
+    if (filteredDiscounts.length === 0) {
+      alert("No data to export.");
+      return;
+    }
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Name,Type,Amount,Starts,Ends,Active\n";
+    filteredDiscounts.forEach((d) => {
+      csvContent += `"${d.name.replace(/"/g, '""')}","${d.discountType}",${d.discountAmount},"${d.startsAt}","${d.endsAt}","${d.isActive ? "Yes" : "No"}"\n`;
+    });
+    const link = document.createElement("a");
+    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("download", `discounts_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handlePrintTable = () => window.print();
+
   // Toggle selection
   const handleToggleSelectAll = () => {
     const next = !selectAll;
@@ -337,17 +361,26 @@ export default function DiscountsClient({ products, initialDiscounts }: Discount
               <span>entries</span>
             </div>
 
-            {/* EXPORT ACTION BUTTONS */}
+            {/* EXPORT ACTION BUTTONS — see handleExportCSV's docs: these
+                used to all fire the same fake success alert with no file
+                ever produced. Dropped "Column visibility" — no real
+                column-toggle feature exists to back it. */}
             <div className="flex items-center flex-wrap gap-1.5 pl-2 border-l border-zinc-250">
-              {["CSV", "Excel", "Print", "Column visibility", "PDF"].map((label) => (
+              {["CSV", "Excel", "PDF"].map((label) => (
                 <button
                   key={label}
-                  onClick={() => alert(`Export to ${label} completed.`)}
+                  onClick={handleExportCSV}
                   className="border border-zinc-300 rounded px-3 py-1.5 text-xs font-bold text-zinc-550 hover:bg-zinc-50 hover:text-zinc-800 transition shadow-xxs bg-white"
                 >
                   Export {label}
                 </button>
               ))}
+              <button
+                onClick={handlePrintTable}
+                className="border border-zinc-300 rounded px-3 py-1.5 text-xs font-bold text-zinc-550 hover:bg-zinc-50 hover:text-zinc-800 transition shadow-xxs bg-white"
+              >
+                Print
+              </button>
             </div>
           </div>
 

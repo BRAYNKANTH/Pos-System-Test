@@ -9,9 +9,11 @@ export type { Role };
 // (don't invent ad-hoc strings in route handlers) rather than inventing
 // ad-hoc strings inline.
 export const PERMISSIONS = {
+  // Also gates the POS quick-void action (see VoidSaleButton /
+  // /api/pos/void/[id]) — bill change requests (correction/refund/void)
+  // used to be a separate approvable workflow but were removed; direct
+  // void is the only bill-approval action left.
   BILLS_APPROVE: "bills:approve",
-  BILLS_REJECT: "bills:reject",
-  BILLS_REQUEST_CHANGE: "bills:request-change",
   INVENTORY_APPROVE: "inventory:approve",
   INVENTORY_REJECT: "inventory:reject",
   INVENTORY_ADJUST: "inventory:adjust",
@@ -42,6 +44,10 @@ export const PERMISSIONS = {
   CUSTOMER_NO_SELL_1M: "customer:no-sell-1m",
   CUSTOMER_NO_SELL_3M: "customer:no-sell-3m",
   CUSTOMER_NO_SELL_6M: "customer:no-sell-6m",
+  // Manually issue/void a customer's store credit (credit note) — not
+  // required to redeem an existing one at checkout, or to issue one as
+  // the outcome of a sales return (gated by SALES_RETURN_CREATE instead).
+  CUSTOMER_CREDIT_MANAGE: "customer:credit-manage",
   // Export table buttons
   EXPORT_TABLES: "export:tables",
   // Stock transfer between locations
@@ -83,7 +89,6 @@ export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 const DEFAULT_GRANTS: Record<Role, PermissionKey[]> = {
   ADMIN: Object.values(PERMISSIONS),
   MANAGER: [
-    PERMISSIONS.BILLS_REQUEST_CHANGE,
     PERMISSIONS.INVENTORY_ADJUST,
     PERMISSIONS.REPORTS_VIEW,
     PERMISSIONS.INVENTORY_TRANSFER,
@@ -103,9 +108,9 @@ const DEFAULT_GRANTS: Record<Role, PermissionKey[]> = {
     PERMISSIONS.QUOTATION_CREATE,
     PERMISSIONS.SHIPMENT_MANAGE,
     PERMISSIONS.PRICE_OVERRIDE,
+    PERMISSIONS.CUSTOMER_CREDIT_MANAGE,
   ],
   CASHIER: [
-    PERMISSIONS.BILLS_REQUEST_CHANGE,
     PERMISSIONS.INVENTORY_ADJUST,
     PERMISSIONS.EXPENSE_CREATE,
     PERMISSIONS.REGISTER_OPEN,

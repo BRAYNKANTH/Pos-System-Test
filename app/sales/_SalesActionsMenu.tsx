@@ -6,14 +6,10 @@ import { VoidSaleButton } from "@/components/VoidSaleButton";
 
 export function SalesActionsMenu({
   transactionId,
-  billId,
   canVoid,
-  canRequestChange,
 }: {
   transactionId: string;
-  billId?: string;
   canVoid: boolean;
-  canRequestChange: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -42,14 +38,6 @@ export function SalesActionsMenu({
           >
             View receipt
           </Link>
-          {canRequestChange && billId && (
-            <Link
-              href={`/bills/${billId}/request-change`}
-              className="block px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-amber-600 font-semibold"
-            >
-              Request Edit
-            </Link>
-          )}
           {canVoid && (
             <div className="px-3 py-1.5">
               <VoidSaleButton transactionId={transactionId} />

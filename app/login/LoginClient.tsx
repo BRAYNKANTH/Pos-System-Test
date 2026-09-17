@@ -86,7 +86,7 @@ function HeroPanel({ bizName }: { bizName: string }) {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
                 <Icon className="h-[18px] w-[18px] text-indigo-200" strokeWidth={2} />
               </div>
-              <span className="text-[11px] font-semibold leading-tight text-white/80">{label}</span>
+              <span className="text-[12px] font-semibold leading-tight text-white/80">{label}</span>
             </div>
           ))}
         </div>

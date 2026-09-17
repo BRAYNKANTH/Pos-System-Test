@@ -16,6 +16,7 @@ export type CartLine = {
   sku: string;
   name: string;
   unitPrice: number;
+  catalogUnitPrice?: number;
   qty: number;
   purchasePrice?: number;
   scaleWeight?: number;
@@ -27,6 +28,10 @@ export type CartLine = {
   isReturnable?: boolean;
   trackSerial?: boolean;
   trackBatch?: boolean;
+  /** Already sold at a fixed/net price — carried from the catalog so
+   * checkout's cart-wide discount can skip this line (see
+   * lib/pos/pricing.ts's applyDiscount). */
+  isNetPriceItem?: boolean;
   batchNumber?: string;
   serialNumbers?: string[];
   /** Manager-discretion price override for this line only (damaged item,
@@ -77,6 +82,7 @@ type CartState = {
       isReturnable?: boolean;
       trackSerial?: boolean;
       trackBatch?: boolean;
+      isNetPriceItem?: boolean;
       batchNumber?: string;
       serialNumbers?: string[];
     },
@@ -99,7 +105,7 @@ type CartState = {
   setCustomer: (customer: { id: string; name: string } | null) => void;
   setHeldCartId: (id: string | null) => void;
   loadHeldCart: (data: {
-    id: string;
+    id: string | null;
     lines: CartLineMaybeWithId[];
     discount: CartDiscount;
     shipping: number;
@@ -131,7 +137,8 @@ export const useCartStore = create<CartState>((set) => ({
   clearLoyaltyRedeem: () => set({ discount: null, loyaltyRedeem: null }),
   setShipping: (shipping) => set({ shipping }),
   setCustomer: (customer) =>
-    set({ customerId: customer?.id ?? null, customerName: customer?.name ?? null }),
+    set((state) => ({ customerId: customer?.id ?? null, customerName: customer?.name ?? null,
+      ...(state.customerId !== (customer?.id ?? null) ? { loyaltyRedeem: null, discount: state.loyaltyRedeem ? null : state.discount } : {}) })),
   setHeldCartId: (heldCartId) => set({ heldCartId }),
   loadHeldCart: (data) =>
     set({
@@ -145,6 +152,7 @@ export const useCartStore = create<CartState>((set) => ({
     }),
   loadQuotationItems: (data) =>
     set({
+      heldCartId: null,
       lines: withLineIds(data.lines),
       customerId: data.customerId,
       customerName: data.customerName,
@@ -163,7 +171,7 @@ export const useCartStore = create<CartState>((set) => ({
       // product (two bags of the same loose item) or selling two
       // serialized units of the same SKU quietly undercharged or
       // under-tracked the second one.
-      if (!item.isScaleItem && !item.trackSerial) {
+      if (!item.isScaleItem && !item.trackSerial && !item.trackBatch) {
         const existing = state.lines.find((l) => l.sku === item.sku);
         if (existing) {
           return {
@@ -176,10 +184,8 @@ export const useCartStore = create<CartState>((set) => ({
   removeItem: (id) => set((state) => ({ lines: state.lines.filter((l) => l.id !== id) })),
   setQty: (id, qty) =>
     set((state) => ({
-      lines:
-        qty <= 0
-          ? state.lines.filter((l) => l.id !== id)
-          : state.lines.map((l) => (l.id === id ? { ...l, qty } : l)),
+      lines: Number.isSafeInteger(qty) && qty > 0
+        ? state.lines.map((l) => (l.id === id ? { ...l, qty } : l)) : state.lines,
     })),
   setLineScaleWeight: (id, scaleWeight) =>
     set((state) => ({

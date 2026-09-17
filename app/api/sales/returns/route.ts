@@ -3,9 +3,17 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { apiSuccess, apiError } from "@/lib/api-response";
-import { createSalesReturn, TransactionNotFoundError, InvalidReturnQtyError, UnknownExchangeSkuError, NonReturnableItemError } from "@/lib/sales/returns";
+import { createSalesReturn, TransactionNotFoundError, InvalidReturnQtyError, UnknownExchangeSkuError, NonReturnableItemError, StoreCreditRequiresCustomerError } from "@/lib/sales/returns";
 import { InsufficientStockError } from "@/lib/inventory/stock";
 import { verifyManagerPin } from "@/lib/auth/managerPin";
+import { z } from "zod";
+import { InvalidReturnInputError } from "@/lib/sales/returns";
+import { StockRestorationError } from "@/lib/inventory/restoreSaleStock";
+import { InsufficientBatchStockError } from "@/lib/inventory/batches";
+import { InvalidSerialError } from "@/lib/inventory/serials";
+
+const itemInput = z.object({ sku: z.string().trim().min(1), qty: z.number().int().positive().max(100000),
+  batchNumber: z.string().trim().min(1).optional(), serialNumbers: z.array(z.string().trim().min(1)).optional() });
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -31,11 +39,10 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const transactionId = typeof body?.transactionId === "string" ? body.transactionId : "";
-  const items = Array.isArray(body?.items)
-    ? body.items
-        .map((i: { sku?: unknown; qty?: unknown }) => ({ sku: String(i?.sku ?? ""), qty: Number(i?.qty) }))
-        .filter((i: { sku: string; qty: number }) => i.sku && Number.isFinite(i.qty) && i.qty > 0)
-    : [];
+  const parsedItems = z.array(itemInput).min(1).max(500).safeParse(body?.items);
+  const parsedExchange = z.array(itemInput).max(500).safeParse(body?.exchangeItems ?? []);
+  if (!parsedItems.success || !parsedExchange.success) return apiError("INVALID_INPUT", "Provide valid items with positive whole quantities", { status: 400 });
+  const items = parsedItems.data;
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
   const refundMethod = typeof body?.refundMethod === "string" ? body.refundMethod : "cash";
   const requestedOverride = Boolean(body?.allowNonReturnableOverride);
@@ -57,11 +64,7 @@ export async function POST(req: NextRequest) {
     }
     allowNonReturnableOverride = true;
   }
-  const exchangeItems = Array.isArray(body?.exchangeItems)
-    ? body.exchangeItems
-        .map((i: { sku?: unknown; qty?: unknown }) => ({ sku: String(i?.sku ?? ""), qty: Number(i?.qty) }))
-        .filter((i: { sku: string; qty: number }) => i.sku && Number.isFinite(i.qty) && i.qty > 0)
-    : [];
+  const exchangeItems = parsedExchange.data;
   const netPaymentMethod = typeof body?.netPaymentMethod === "string" ? body.netPaymentMethod : undefined;
 
   if (!transactionId || items.length === 0 || !reason) {
@@ -76,11 +79,15 @@ export async function POST(req: NextRequest) {
       refundMethod,
       createdById: user.id,
       allowNonReturnableOverride,
+      confirmedTrackedUnits: body?.confirmedTrackedUnits === true,
       exchangeItems: exchangeItems.length > 0 ? exchangeItems : undefined,
       netPaymentMethod,
     });
     return apiSuccess(result, { status: 201 });
   } catch (err) {
+    if (err instanceof InvalidReturnInputError || err instanceof StockRestorationError || err instanceof InsufficientBatchStockError || err instanceof InvalidSerialError) {
+      return apiError("RETURN_CONFLICT", err.message, { status: 409 });
+    }
     if (err instanceof TransactionNotFoundError) {
       return apiError("NOT_FOUND", err.message, { status: 404 });
     }
@@ -92,6 +99,9 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof UnknownExchangeSkuError) {
       return apiError("UNKNOWN_SKU", err.message, { status: 400 });
+    }
+    if (err instanceof StoreCreditRequiresCustomerError) {
+      return apiError("STORE_CREDIT_REQUIRES_CUSTOMER", err.message, { status: 400 });
     }
     if (err instanceof InsufficientStockError) {
       return apiError("INSUFFICIENT_STOCK", `Not enough stock for ${err.sku} to complete the exchange`, { status: 409 });

@@ -36,7 +36,8 @@ export default async function DraftsPage() {
       </p>
 
       <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <table className="w-full text-left text-sm">
+       <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-left text-sm">
           <thead className="border-b bg-zinc-50 text-xs font-bold uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             <tr>
               <th className="px-4 py-2.5">Created</th>
@@ -70,6 +71,7 @@ export default async function DraftsPage() {
             })}
           </tbody>
         </table>
+       </div>
       </div>
     </main>
   );

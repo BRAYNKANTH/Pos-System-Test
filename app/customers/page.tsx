@@ -45,7 +45,7 @@ export default async function CustomersPage({
           >
             <div className="flex items-center gap-2">
               <span className="font-bold">{c.name}</span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+              <span className="px-2 py-0.5 rounded text-[11px] font-extrabold uppercase bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
                 🏆 {c.loyaltyTier || "Bronze"}
               </span>
             </div>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/session";
 import { apiSuccess, apiError } from "@/lib/api-response";
 import bcrypt from "bcryptjs";
+import { hashPinCode } from "@/lib/auth/pinHash";
 
 // GET /api/admin/users — list users
 export async function GET(req: NextRequest) {
@@ -18,10 +19,21 @@ export async function GET(req: NextRequest) {
         name: true,
         email: true,
         role: true,
+        pinCode: true,
+        cardCode: true,
       },
       orderBy: { name: "asc" }
     });
-    return apiSuccess(users);
+    // Never ship the raw pinCode/cardCode values to a list view — just
+    // whether one's configured. The actual card code is only ever
+    // returned once, right after issuing it (POST .../card), the same
+    // moment it gets printed — not re-fetchable afterward from here.
+    const sanitized = users.map(({ pinCode, cardCode, ...rest }) => ({
+      ...rest,
+      hasPinCode: pinCode !== null,
+      hasCardCode: cardCode !== null,
+    }));
+    return apiSuccess(sanitized);
   } catch (err) {
     console.error("fetchUsers failed", err);
     return apiError("FETCH_FAILED", "Failed to retrieve users", { status: 500 });
@@ -48,6 +60,13 @@ export async function POST(req: NextRequest) {
     }
 
     const passwordHash = await bcrypt.hash(body.password, 10);
+    // pinCode used to be collected by the form and silently dropped here
+    // — never persisted on create, so the "Security PIN" field never
+    // actually did anything for a brand-new user.
+    const rawPinCode = typeof body.pinCode === "string" && body.pinCode.trim() ? body.pinCode.trim() : undefined;
+    // Stored hashed (see lib/auth/pinHash.ts), never in plaintext — matches
+    // how passwordHash is handled above.
+    const pinCode = rawPinCode !== undefined ? hashPinCode(rawPinCode) : undefined;
 
     const user = await prisma.user.create({
       data: {
@@ -55,6 +74,7 @@ export async function POST(req: NextRequest) {
         email,
         passwordHash,
         role: body.role || "CASHIER",
+        pinCode,
       },
       select: {
         id: true,
@@ -64,7 +84,7 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    return apiSuccess(user);
+    return apiSuccess({ ...user, hasPinCode: pinCode !== undefined, hasCardCode: false });
   } catch (err) {
     console.error("createUser failed", err);
     return apiError("CREATE_FAILED", "Failed to save user to database", { status: 500 });

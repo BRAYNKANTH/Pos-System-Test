@@ -2141,11 +2141,6 @@ export default function InvoiceSettingsClient() {
           </div>
         </form>
       </Modal>
-
-      {/* FOOTER BRANDING */}
-      <div className="text-center text-xs text-zinc-405 pt-4 border-t border-zinc-200">
-        Apple Tech POS - v6.7 | Copyright © 2026 All rights reserved.
-      </div>
     </div>
   );
 }

@@ -31,7 +31,7 @@ export type RegisterSummary = {
 };
 
 const fmt = (n: number) => `Rs ${n.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const METHOD_LABEL: Record<string, string> = { cash: "Cash Payment", card: "Card Payment", wallet: "Digital Wallet" };
+const METHOD_LABEL: Record<string, string> = { cash: "Cash Payment", card: "Card Payment", wallet: "Digital Wallet", gift_card: "Gift Card", store_credit: "Store Credit" };
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
@@ -78,7 +78,7 @@ export function RegisterSummaryReport({ title, summary }: { title: string; summa
 
       {/* Summary totals */}
       <div className="space-y-1.5 text-xs">
-        <Row label="Total Sales" value={fmt(summary.totalSales)} />
+        <Row label="Sales and Exchange Payments" value={fmt(summary.totalSales)} />
         <Row label="Total Refund" value={`-${fmt(summary.totalRefund)}`} tone="negative" />
         <Row label="Total Payment (Sales − Refund)" value={fmt(summary.totalPayment)} bold />
         <Row label="Credit Sales" value={fmt(summary.creditSales)} />
@@ -87,7 +87,7 @@ export function RegisterSummaryReport({ title, summary }: { title: string; summa
         <Row label="Cash In (manual)" value={fmt(summary.cashIn)} />
         <Row label="Cash Out (manual)" value={`-${fmt(summary.cashOut)}`} tone="negative" />
         {summary.voidedCount > 0 && (
-          <p className="text-[11px] text-zinc-400 pt-1">{summary.voidedCount} voided sale(s) excluded from these totals.</p>
+          <p className="text-[12px] text-zinc-400 pt-1">{summary.voidedCount} voided sale(s) excluded from these totals.</p>
         )}
       </div>
 
@@ -96,7 +96,7 @@ export function RegisterSummaryReport({ title, summary }: { title: string; summa
           <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wide">Expected Cash in Drawer</span>
           <span className="text-lg font-black font-mono tabular-nums text-indigo-700 dark:text-indigo-400">{fmt(summary.expectedCash)}</span>
         </div>
-        <p className="text-[11px] text-indigo-500 dark:text-indigo-500 mt-1">
+        <p className="text-[12px] text-indigo-500 dark:text-indigo-500 mt-1">
           = Opening float + Cash sales + Cash in − Cash out − Cash refunds − Expenses − Cash purchase payments
         </p>
       </div>
@@ -195,7 +195,7 @@ export function RegisterSummaryReport({ title, summary }: { title: string; summa
         </div>
       )}
 
-      <div className="border-t border-zinc-150 dark:border-zinc-800 pt-3 text-[11px] text-zinc-500 space-y-0.5">
+      <div className="border-t border-zinc-150 dark:border-zinc-800 pt-3 text-[12px] text-zinc-500 space-y-0.5">
         <p><span className="font-bold">Opened by:</span> {session.openedByName}</p>
         <p><span className="font-bold">Email:</span> {session.openedByEmail}</p>
         {session.closedByName && <p><span className="font-bold">Closed by:</span> {session.closedByName}</p>}

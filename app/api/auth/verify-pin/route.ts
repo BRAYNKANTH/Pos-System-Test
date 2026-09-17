@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const pin = typeof body?.pin === "string" ? body.pin.trim() : "";
 
     if (!pin) {
-      return apiError("INVALID_INPUT", "Security PIN is required", { status: 400 });
+      return apiError("INVALID_INPUT", "A manager PIN or card scan is required", { status: 400 });
     }
 
     const result = await verifyManagerPin(pin);
@@ -20,11 +20,11 @@ export async function POST(req: NextRequest) {
       if (result.reason === "NO_PIN_CONFIGURED") {
         return apiError(
           "NO_PIN_CONFIGURED",
-          "No manager or admin has a PIN set up yet — set one in Admin → Users before this can be used.",
+          "No manager or admin has a PIN or card set up yet — set one in Admin → Users before this can be used.",
           { status: 409 },
         );
       }
-      return apiError("UNAUTHORIZED_PIN", "Invalid Manager PIN code", { status: 403 });
+      return apiError("UNAUTHORIZED_PIN", "Invalid manager PIN or card", { status: 403 });
     }
 
     return apiSuccess({
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       approverId: result.approverId,
       approverName: result.approverName,
       role: result.role,
+      via: result.via,
     });
   } catch (err) {
     return apiError("INTERNAL_ERROR", errorMessage(err, "Failed to verify PIN"), { status: 500 });

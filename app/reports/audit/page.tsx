@@ -42,7 +42,8 @@ export default async function AuditReportPage({
       </form>
 
       <div className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-sm">
+       <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="bg-zinc-50 text-left text-xs text-zinc-500 dark:bg-zinc-900">
             <tr>
               <th className="px-4 py-2 font-medium">Entity</th>
@@ -66,6 +67,7 @@ export default async function AuditReportPage({
             ))}
           </tbody>
         </table>
+       </div>
         {entries.length === 0 && <p className="p-4 text-sm text-zinc-400">No audit entries yet.</p>}
       </div>
     </main>

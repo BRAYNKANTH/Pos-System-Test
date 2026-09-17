@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/lib/audit/writeAuditLog";
 
 // Real Zoho Books OAuth 2.0 + API client. Everything here is genuine,
 // working code — the only thing that can't be exercised without real
@@ -20,19 +21,28 @@ export function isDataCenter(value: string): value is DataCenter {
   return value in DATA_CENTERS;
 }
 
+// Anti-CSRF nonce cookie for the OAuth round trip — see buildAuthorizeUrl.
+export const OAUTH_STATE_COOKIE = "zoho_oauth_state";
+export const OAUTH_STATE_MAX_AGE_S = 600;
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is not set — configure it in .env.local`);
   return value;
 }
 
-/** connectZohoOAuth — builds the URL to redirect the admin to. Passes the
- * chosen data center back as `state`, which Zoho echoes back unchanged on
- * the callback — that's how the callback route knows which data center's
- * token endpoint to use for the code exchange (the account's actual data
- * center, e.g. an India-hosted Zoho org, would otherwise always fail
- * against the "com" default). */
-export function buildAuthorizeUrl(dataCenter: DataCenter = "com"): string {
+/** connectZohoOAuth — builds the URL to redirect the admin to. `state`
+ * carries both the chosen data center (so the callback knows which data
+ * center's token endpoint to use — an India-hosted Zoho org would
+ * otherwise always fail against the "com" default) and a random,
+ * per-attempt `nonce` the caller generated and stashed in a short-lived
+ * cookie. Zoho echoes `state` back unchanged on the callback, which
+ * checks the returned nonce against that cookie before exchanging any
+ * code — without this, anyone could complete their own OAuth consent
+ * with Zoho and hand the resulting `code` to a logged-in admin (e.g. via
+ * a link), silently repointing the store's Zoho sync at the attacker's
+ * own Zoho org (OAuth login CSRF). */
+export function buildAuthorizeUrl(dataCenter: DataCenter = "com", nonce?: string): string {
   const clientId = requireEnv("ZOHO_CLIENT_ID");
   const redirectUri = requireEnv("ZOHO_REDIRECT_URI");
   const url = new URL(`${DATA_CENTERS[dataCenter].accounts}/oauth/v2/auth`);
@@ -42,8 +52,16 @@ export function buildAuthorizeUrl(dataCenter: DataCenter = "com"): string {
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
-  url.searchParams.set("state", dataCenter);
+  url.searchParams.set("state", nonce ? `${dataCenter}:${nonce}` : dataCenter);
   return url.toString();
+}
+
+/** Splits the `state` value built by `buildAuthorizeUrl` back into its
+ * data center and nonce parts. */
+export function parseOAuthState(state: string): { dataCenter: string; nonce: string | null } {
+  const sepIndex = state.indexOf(":");
+  if (sepIndex === -1) return { dataCenter: state, nonce: null };
+  return { dataCenter: state.slice(0, sepIndex), nonce: state.slice(sepIndex + 1) };
 }
 
 /** Token exchange after the OAuth redirect comes back with a `code`.
@@ -336,25 +354,20 @@ export async function sendToZoho(params: {
     }
 
     case "bill": {
-      // Credit note for an approved bill change (refund/void/correction).
+      // Credit note for a quick-voided sale (see /api/pos/void/[id]).
       // Zoho credit notes need the same customer_id + line_items shape as
-      // invoices. There's no guaranteed structured "amount" on
-      // BillChangeRequest.proposedChanges (it's free-form JSON set by
-      // whatever the client sent), so this credits the full original sale
-      // total as one line, described by the change's reason — an honest
-      // approximation, not a partial-amount credit. It's also not linked
-      // back to the original Zoho invoice (Zoho's credit note API doesn't
-      // take a parent invoice id on create), so reconciling the two in
-      // Zoho Books is a manual step for now.
+      // invoices — this credits the full original sale total as one line.
+      // It's not linked back to the original Zoho invoice (Zoho's credit
+      // note API doesn't take a parent invoice id on create), so
+      // reconciling the two in Zoho Books is a manual step for now.
       const bill = await prisma.bill.findUniqueOrThrow({
         where: { id: params.entityId },
-        include: { transaction: { include: { customer: true } }, changeRequests: { orderBy: { createdAt: "desc" }, take: 1 } },
+        include: { transaction: { include: { customer: true } } },
       });
       if (bill.zohoCreditNoteId) {
         return { skipped: true, creditnote_id: bill.zohoCreditNoteId };
       }
 
-      const latestRequest = bill.changeRequests[0];
       const customerId = await resolveContactId(connection, bill.transaction.customer);
 
       const result = await zohoFetch(connection, "/creditnotes", {
@@ -365,7 +378,7 @@ export async function sendToZoho(params: {
           date: new Date().toISOString().slice(0, 10),
           line_items: [
             {
-              name: `Bill adjustment${latestRequest ? ` (${latestRequest.type}): ${latestRequest.reason}` : ""}`,
+              name: "Sale voided",
               rate: Number(bill.transaction.total),
               quantity: 1,
             },
@@ -452,4 +465,71 @@ export async function sendToZoho(params: {
     default:
       throw new Error(`No Zoho handler for entityType "${params.entityType}"`);
   }
+}
+
+/** pullInvoicePayments — the "other direction" of the sync: everything
+ * above only ever pushes POS state INTO Zoho. This is the one pull path
+ * back — when an accountant records a payment against a synced invoice
+ * directly in Zoho Books (a bank transfer against an on-account/credit
+ * sale, say), the POS never finds out on its own; the invoice just sits
+ * showing as due forever even though it's actually settled. This checks
+ * every locally-still-due, Zoho-synced transaction's live balance in
+ * Zoho and, if Zoho shows more paid than the POS has tenders for,
+ * records the gap as a new PaymentTender here (method "zoho_payment", so
+ * it's visibly distinct from a tender actually taken at this terminal).
+ *
+ * There's no webhook endpoint wired up for this (that needs a public
+ * HTTPS URL Zoho can reach, which a local dev environment doesn't have)
+ * — this is polled instead, either on demand (see
+ * POST /api/admin/sync/pull-payments, the "Pull Payments from Zoho"
+ * button on /admin/sync-status) or periodically by scripts/worker.ts.
+ * `actorId` is the admin who triggered a manual pull, for the audit
+ * log — omitted for the worker's own periodic tick, which writes the
+ * PaymentTender either way but skips the audit entry (there's no real
+ * "actor" for a scheduled background check). */
+export async function pullInvoicePayments(actorId?: string) {
+  const connection = await getValidConnection();
+
+  const candidates = await prisma.transaction.findMany({
+    where: { status: "completed", zohoInvoiceId: { not: null } },
+    include: { tenders: true },
+  });
+  const stillDue = candidates.filter((tx) => {
+    const paid = tx.tenders.reduce((sum, t) => sum + Number(t.amount), 0);
+    return paid < Number(tx.total) - 0.01;
+  });
+
+  const result = { checked: stillDue.length, updated: 0, errors: [] as { transactionId: string; message: string }[] };
+
+  for (const tx of stillDue) {
+    try {
+      const body = await zohoFetch(connection, `/invoices/${tx.zohoInvoiceId}`);
+      const invoice = body.invoice;
+      if (!invoice) continue;
+
+      const zohoPaid = Math.round((Number(invoice.total) - Number(invoice.balance)) * 100) / 100;
+      const localPaid = Math.round(tx.tenders.reduce((sum, t) => sum + Number(t.amount), 0) * 100) / 100;
+      const gap = Math.round((zohoPaid - localPaid) * 100) / 100;
+      if (gap <= 0.01) continue;
+
+      await prisma.paymentTender.create({
+        data: { transactionId: tx.id, method: "zoho_payment", amount: gap },
+      });
+      if (actorId) {
+        await writeAuditLog({
+          entityType: "invoice_payment_pull",
+          entityId: tx.id,
+          oldValue: { localPaid },
+          newValue: { zohoPaid, recordedGap: gap },
+          actorId,
+          reason: `Payment recorded in Zoho Books against invoice ${tx.zohoInvoiceId}`,
+        });
+      }
+      result.updated++;
+    } catch (err) {
+      result.errors.push({ transactionId: tx.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return result;
 }

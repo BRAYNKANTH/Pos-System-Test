@@ -182,7 +182,7 @@ export function ImportSalesClient() {
           </button>
         </div>
 
-        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed bg-zinc-50 dark:bg-zinc-850 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3">
+        <div className="text-[12px] text-zinc-500 dark:text-zinc-400 leading-relaxed bg-zinc-50 dark:bg-zinc-850 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3">
           <p className="font-bold text-zinc-700 dark:text-zinc-300 mb-1">Columns:</p>
           <p>
             <code className="font-mono">date</code>* · <code className="font-mono">sku</code>* ·{" "}
@@ -213,7 +213,7 @@ export function ImportSalesClient() {
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-80 overflow-y-auto">
-              <table className="w-full text-[11px] text-left">
+              <table className="w-full text-[12px] text-left">
                 <thead className="bg-zinc-50 dark:bg-zinc-850 sticky top-0 text-zinc-500 font-bold uppercase">
                   <tr>
                     <th className="px-3 py-2">#</th>

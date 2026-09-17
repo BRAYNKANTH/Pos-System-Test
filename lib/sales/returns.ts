@@ -1,12 +1,19 @@
 import { prisma, TRANSACTION_OPTIONS } from "@/lib/prisma";
-import { creditDefaultLocation, debitDefaultLocationBestEffort } from "@/lib/inventory/locationStock";
+import { debitDefaultLocationBestEffort } from "@/lib/inventory/locationStock";
 import { InsufficientStockError } from "@/lib/inventory/stock";
+import { issueStoreCredit } from "@/lib/customers/storeCredit";
+import { restoreSaleStock } from "@/lib/inventory/restoreSaleStock";
+import { deductBatchStock } from "@/lib/inventory/batches";
+import { validateAndAssignSerials } from "@/lib/inventory/serials";
+import { priceReturn } from "./return-pricing";
 
 export class TransactionNotFoundError extends Error {
   constructor() {
     super("Transaction not found");
   }
 }
+
+export class InvalidReturnInputError extends Error {}
 
 export class InvalidReturnQtyError extends Error {
   constructor(public sku: string) {
@@ -26,8 +33,14 @@ export class UnknownExchangeSkuError extends Error {
   }
 }
 
+export class StoreCreditRequiresCustomerError extends Error {
+  constructor() {
+    super("A store credit refund needs a registered customer on the original sale — this one was Walk-In");
+  }
+}
+
 /** createSalesReturn — everyday "customer brought an item back" counter
- * flow, distinct from the admin-approval BillChangeRequest workflow.
+ * flow, distinct from a full sale void (see VoidSaleButton).
  * Restocks the returned quantities (qtyOnHand + default location
  * breakdown) and computes a fair refund: each returned unit refunds its
  * original per-unit net price (post-discount, pre-tax) plus its share of
@@ -40,17 +53,37 @@ export async function createSalesReturn(params: {
   refundMethod: string;
   createdById: string;
   allowNonReturnableOverride?: boolean;
+  confirmedTrackedUnits?: boolean;
   /** Exchange — the replacement item(s) going out in the same operation
    * as the return coming in. Omit/empty for a plain refund-only return. */
-  exchangeItems?: { sku: string; qty: number }[];
+  exchangeItems?: { sku: string; qty: number; batchNumber?: string; serialNumbers?: string[] }[];
   netPaymentMethod?: string;
 }) {
+  if (!params.items.length || !["cash", "card", "wallet", "store_credit"].includes(params.refundMethod)
+    || (params.netPaymentMethod !== undefined && !["cash", "card", "wallet"].includes(params.netPaymentMethod))) {
+    throw new InvalidReturnInputError("Select a valid refund/payment method and at least one item");
+  }
   return prisma.$transaction(async (tx) => {
+    // pg_advisory_xact_lock returns void — $queryRaw fails trying to
+    // deserialize a void-typed result column, which broke every return.
+    // $executeRaw doesn't read back rows, so it's the correct call here:
+    // only the lock's side effect matters, never its return value.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.transactionId}))`;
     const transaction = await tx.transaction.findUnique({
       where: { id: params.transactionId },
-      include: { items: true },
+      include: { items: { orderBy: { id: "asc" } } },
     });
     if (!transaction) throw new TransactionNotFoundError();
+    if (transaction.status !== "completed") throw new TransactionNotFoundError();
+    // Only a plain (non-exchange) return can actually pay out as store
+    // credit — see the note by issueStoreCredit's call below — so an
+    // exchange with refundMethod left at "store_credit" (the field isn't
+    // hidden in exchange mode, it's just not consulted) shouldn't be
+    // blocked by this Walk-In check when it'll never issue a credit note.
+    const isPlainReturn = !params.exchangeItems || params.exchangeItems.length === 0;
+    if (isPlainReturn && params.refundMethod === "store_credit" && !transaction.customerId) {
+      throw new StoreCreditRequiresCustomerError();
+    }
 
     const priorReturns = await tx.salesReturnItem.findMany({
       where: { return: { transactionId: params.transactionId } },
@@ -84,7 +117,7 @@ export async function createSalesReturn(params: {
       const totalSoldQty = matchingLines.reduce((sum, l) => sum + l.qty, 0);
       const alreadyReturned = priorReturnedBySku.get(reqItem.sku) ?? 0;
       const remainingReturnable = totalSoldQty - alreadyReturned;
-      if (reqItem.qty <= 0 || reqItem.qty > remainingReturnable) {
+      if (!Number.isSafeInteger(reqItem.qty) || reqItem.qty <= 0 || reqItem.qty > remainingReturnable) {
         throw new InvalidReturnQtyError(reqItem.sku);
       }
 
@@ -92,39 +125,20 @@ export async function createSalesReturn(params: {
       // they were sold (oldest first), pro-rating a partial line the same
       // way — each unit refunds its own line's net-per-unit price rather
       // than assuming every unit of this sku sold at the same price.
-      let remainingToReturn = reqItem.qty;
-      let refundForThisSku = 0;
-      let representativeUnitPrice = Number(matchingLines[0].unitPrice);
-      for (const line of matchingLines) {
-        if (remainingToReturn <= 0) break;
-        const qtyFromThisLine = Math.min(line.qty, remainingToReturn);
-        if (qtyFromThisLine <= 0) continue;
-        const netLineTotal = Number(line.unitPrice) * line.qty - Number(line.discount) + Number(line.taxAmount);
-        const perUnitNet = netLineTotal / line.qty;
-        refundForThisSku += perUnitNet * qtyFromThisLine;
-        representativeUnitPrice = Number(line.unitPrice);
-        remainingToReturn -= qtyFromThisLine;
-      }
-      refundAmount += refundForThisSku;
+      const priced = priceReturn(matchingLines, alreadyReturned, reqItem.qty);
+      if (!params.confirmedTrackedUnits && priced.allocations.some(a => {
+        const line = matchingLines[a.index];
+        return line.batchNumber || (Array.isArray(line.serialNumbers) && line.serialNumbers.length > 0);
+      })) throw new InvalidReturnInputError("Confirm that the returned batches and serial numbers match the units shown on the return form");
+      refundAmount += priced.amount;
+      priorReturnedBySku.set(reqItem.sku, alreadyReturned + reqItem.qty);
+      const representativeUnitPrice = priced.amount / reqItem.qty;
 
       returnItemsData.push({ sku: reqItem.sku, qty: reqItem.qty, unitPrice: representativeUnitPrice });
 
-      // Restock — same system-wide total + default-location bookkeeping
-      // as every other stock-increasing path (see lib/inventory/stock.ts).
-      await tx.inventoryItem.update({
-        where: { sku: reqItem.sku },
-        data: { qtyOnHand: { increment: reqItem.qty } },
-      });
-      await tx.stockAdjustment.create({
-        data: {
-          sku: reqItem.sku,
-          qtyChange: reqItem.qty,
-          type: "automated",
-          reasonCategory: "sales_return",
-          status: "applied",
-        },
-      });
-      await creditDefaultLocation(tx, reqItem.sku, reqItem.qty);
+      for (const allocation of priced.allocations) {
+        await restoreSaleStock(tx, transaction.id, matchingLines[allocation.index], allocation.qty, allocation.offset, "sales_return");
+      }
     }
 
     refundAmount = Math.round(refundAmount * 100) / 100;
@@ -139,9 +153,16 @@ export async function createSalesReturn(params: {
     const exchangeItemsData: { sku: string; qty: number; unitPrice: number }[] = [];
 
     for (const exItem of exchangeItems) {
-      if (exItem.qty <= 0) continue;
+      if (!Number.isSafeInteger(exItem.qty) || exItem.qty <= 0) throw new InvalidReturnInputError("Exchange quantity must be a positive whole number");
       const item = await tx.inventoryItem.findUnique({ where: { sku: exItem.sku } });
       if (!item) throw new UnknownExchangeSkuError(exItem.sku);
+      if (item.isScaleItem) throw new InvalidReturnInputError("Process weighed replacement items through POS checkout after recording the return");
+      if (item.trackBatch && !exItem.batchNumber) throw new InvalidReturnInputError(`Select a replacement batch for ${item.name}`);
+      const batch = exItem.batchNumber ? await tx.itemBatch.findUnique({ where: { sku_batchNumber: { sku: exItem.sku, batchNumber: exItem.batchNumber } } }) : null;
+      if (exItem.batchNumber && !batch) throw new InvalidReturnInputError(`Unknown replacement batch for ${item.name}`);
+      if (item.trackSerial && (exItem.serialNumbers?.length !== exItem.qty || new Set(exItem.serialNumbers).size !== exItem.qty)) {
+        throw new InvalidReturnInputError(`Enter one unique replacement serial per unit of ${item.name}`);
+      }
 
       const result = await tx.inventoryItem.updateMany({
         where: { sku: exItem.sku, qtyOnHand: { gte: exItem.qty } },
@@ -159,8 +180,10 @@ export async function createSalesReturn(params: {
         },
       });
       await debitDefaultLocationBestEffort(tx, exItem.sku, exItem.qty);
+      if (item.trackBatch || exItem.batchNumber) await deductBatchStock(tx, exItem.sku, exItem.qty, exItem.batchNumber);
+      if (exItem.serialNumbers?.length) await validateAndAssignSerials(tx, exItem.sku, exItem.serialNumbers, transaction.id);
 
-      const unitPrice = Number(item.unitPrice);
+      const unitPrice = Number(batch?.unitPrice ?? item.unitPrice);
       exchangeTotal += unitPrice * exItem.qty;
       exchangeItemsData.push({ sku: exItem.sku, qty: exItem.qty, unitPrice });
     }
@@ -168,7 +191,7 @@ export async function createSalesReturn(params: {
     exchangeTotal = Math.round(exchangeTotal * 100) / 100;
     const netAmount = Math.round((exchangeTotal - refundAmount) * 100) / 100;
 
-    return tx.salesReturn.create({
+    const salesReturn = await tx.salesReturn.create({
       data: {
         transactionId: params.transactionId,
         reason: params.reason,
@@ -184,5 +207,30 @@ export async function createSalesReturn(params: {
       },
       include: { items: true, exchangeItems: true },
     });
+
+    // Persist replacement tracking details without rewriting the original receipt.
+    if (exchangeItems.length) await tx.auditLog.create({ data: {
+      entityType: "sales_return_exchange", entityId: salesReturn.id, actorId: params.createdById,
+      reason: params.reason, newValue: { items: exchangeItems },
+    } });
+
+    // Issue the actual credit note when refundMethod is "store_credit" —
+    // this used to be just a label on the return with nothing behind it
+    // (see lib/customers/storeCredit.ts's docs). Scoped to plain,
+    // non-exchange returns: an exchange's payout channel is
+    // netPaymentMethod (cash/card/wallet only — the UI never offers
+    // "store_credit" there), not refundMethod, so exchangeItemsData is
+    // never combined with a store-credit payout here.
+    if (exchangeItemsData.length === 0 && params.refundMethod === "store_credit" && refundAmount > 0) {
+      await issueStoreCredit(tx, {
+        customerId: transaction.customerId!,
+        amount: refundAmount,
+        reason: `Sales return: ${params.reason}`,
+        sourceReturnId: salesReturn.id,
+        createdById: params.createdById,
+      });
+    }
+
+    return salesReturn;
   }, TRANSACTION_OPTIONS);
 }

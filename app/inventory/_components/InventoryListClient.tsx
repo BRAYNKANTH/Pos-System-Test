@@ -1,4 +1,5 @@
 "use client";
+import { Modal } from "@/components/ui/modal";
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
@@ -66,12 +67,14 @@ interface StockAdjustmentLog {
 
 interface InventoryListClientProps {
   initialItems: InventoryItem[];
+  initialTotal: number;
   categories: (string | null)[];
   brands: (string | null)[];
 }
 
 export default function InventoryListClient({
   initialItems,
+  initialTotal,
   categories,
   brands,
 }: InventoryListClientProps) {
@@ -79,17 +82,19 @@ export default function InventoryListClient({
   
   // Filter settings
   const [filtersOpen, setFiltersOpen] = useState(true);
-  const [filterType, setFilterType] = useState("All");
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterUnit, setFilterUnit] = useState("All");
-  const [filterTax, setFilterTax] = useState("All");
   const [filterBrand, setFilterBrand] = useState("All");
   const [filterLocation, setFilterLocation] = useState("All");
-  const [notForSelling, setNotForSelling] = useState(false);
 
   // Search, tabs and display configurations
   const [searchQuery, setSearchQuery] = useState("");
   const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(initialTotal);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  const [reload, setReload] = useState(0);
   const [activeTab, setActiveTab] = useState("all-products");
 
   // Floating menus and modals
@@ -153,6 +158,11 @@ export default function InventoryListClient({
   const [receiveBatchNumber, setReceiveBatchNumber] = useState("");
   const [receiveExpiryDate, setReceiveExpiryDate] = useState("");
   const [receiveCostPrice, setReceiveCostPrice] = useState("");
+  // Selling price for this specific batch — separate from costPrice above
+  // (what we paid). Left blank, this batch just sells at whatever the
+  // product's normal catalog price is; set it when this lot needs to
+  // charge customers something different (see ItemBatch.unitPrice's docs).
+  const [receiveBatchUnitPrice, setReceiveBatchUnitPrice] = useState("");
   // Serial numbers — one per unit, required when the product is trackSerial
   const [receiveSerials, setReceiveSerials] = useState<string[]>([]);
 
@@ -179,55 +189,45 @@ export default function InventoryListClient({
     return () => window.removeEventListener("click", handleOutsideClick);
   }, []);
 
-  // Check for addStockSku query parameter in URL to auto-open stock editor
+  // Deep links must also resolve products outside the currently loaded page.
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const addStockSku = urlParams.get("addStockSku");
-    if (addStockSku) {
-      const foundItem = items.find(i => i.sku === addStockSku);
-      if (foundItem) {
-        // Reading the URL's query string requires the DOM (not available
-        // during render/SSR), so this can only run inside an effect —
-        // there's no derived-state alternative here.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setEditingStockItem(foundItem);
-        // Clear the query parameter from the browser URL address bar immediately
-        // so that updating local items state doesn't re-trigger this modal.
-        if (typeof window !== "undefined") {
-          window.history.replaceState(null, "", "/inventory");
-        }
-      }
-    }
-  }, [items]);
+    const params = new URLSearchParams(window.location.search);
+    const sku = params.get("addStockSku");
+    if (!sku) return;
+    const controller = new AbortController();
+    void fetch('/api/inventory/' + encodeURIComponent(sku), { signal: controller.signal })
+      .then(r => r.json()).then(body => {
+        if (!body.success) throw new Error(body.error?.message ?? 'Product could not be loaded');
+        if (controller.signal.aborted) return;
+        setEditingStockItem({ ...body.data, unitPrice: Number(body.data.unitPrice), purchasePrice: Number(body.data.purchasePrice) });
+        const url = new URL(window.location.href); url.searchParams.delete('addStockSku');
+        window.history.replaceState(null, '', url.pathname + url.search);
+      }).catch(error => { if (!controller.signal.aborted) setAlertMsg({ type: 'error', text: error.message }); });
+    return () => controller.abort();
+  }, []);
 
   const fmtPrice = (val: number) => `Rs ${val.toFixed(2)}`;
 
-  // Filter & Search computation logic
-  const filteredItems = items.filter((item) => {
-    // Search
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchName = item.name.toLowerCase().includes(q);
-      const matchSku = item.sku.toLowerCase().includes(q);
-      if (!matchName && !matchSku) return false;
-    }
-
-    // Dropdown filters
-    if (filterCategory !== "All" && item.category !== filterCategory) return false;
-    if (filterBrand !== "All" && item.brand !== filterBrand) return false;
-
-    // Simulate Location & Tax filter
-    if (filterTax !== "All" && filterTax === "VAT8") return false; // None has tax
-    if (filterType !== "All" && filterType !== "Single") return false; // All are single products
-
-    // Low stock filter (Stock Report tab)
-    if (activeTab === "stock-report") {
-      const isLowStock = item.qtyOnHand <= item.lowStockThreshold;
-      if (!isLowStock) return false;
-    }
-
-    return true;
-  });
+  const filterKey = JSON.stringify([searchQuery, filterCategory, filterBrand, filterLocation, filterUnit, activeTab, pageSize]);
+  const [previousFilterKey, setPreviousFilterKey] = useState(filterKey);
+  if (previousFilterKey !== filterKey) { setPreviousFilterKey(filterKey); setPage(0); }
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setListLoading(true); setListError('');
+      try {
+        const params = new URLSearchParams({ query: searchQuery, category: filterCategory, brand: filterBrand, location: filterLocation, unit: filterUnit,
+          low: activeTab === 'stock-report' ? '1' : '0', limit: String(pageSize), page: String(page) });
+        const response = await fetch('/api/inventory?' + params, { signal: controller.signal });
+        const body = await response.json();
+        if (!response.ok || !body.success) throw new Error(body.error?.message || 'Could not load inventory');
+        setItems(body.data.items); setTotal(body.data.total);
+      } catch(e) { if (!controller.signal.aborted) setListError(e instanceof Error ? e.message : 'Could not load inventory'); }
+      finally { if (!controller.signal.aborted) setListLoading(false); }
+    }, 200);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [searchQuery, filterCategory, filterBrand, filterLocation, filterUnit, activeTab, pageSize, page, reload]);
+  const filteredItems = items;
 
   // Action: Delete product
   const handleDeleteProduct = async (sku: string, name: string) => {
@@ -374,8 +374,8 @@ export default function InventoryListClient({
     e.preventDefault();
     if (!receivingItem) return;
 
-    const qty = parseInt(receiveQty);
-    if (isNaN(qty) || qty <= 0) {
+    const qty = Number(receiveQty);
+    if (!Number.isSafeInteger(qty) || qty <= 0) {
       alert("Please enter a quantity greater than 0.");
       return;
     }
@@ -383,8 +383,8 @@ export default function InventoryListClient({
       alert(`${receivingItem.name} is batch/lot-tracked — enter a batch number.`);
       return;
     }
-    const trimmedSerials = receiveSerials.slice(0, qty).map((s) => s.trim());
-    if (receivingItem.trackSerial && (trimmedSerials.length !== qty || trimmedSerials.some((s) => !s))) {
+    const trimmedSerials = receiveSerials.map((s) => s.trim()).filter(Boolean);
+    if (receivingItem.trackSerial && (trimmedSerials.length !== qty || new Set(trimmedSerials).size !== qty)) {
       alert(`${receivingItem.name} is serial-tracked — enter all ${qty} serial number(s).`);
       return;
     }
@@ -400,6 +400,7 @@ export default function InventoryListClient({
           batchNumber: receivingItem.trackBatch ? receiveBatchNumber.trim() : undefined,
           expiryDate: receiveExpiryDate || undefined,
           costPrice: receiveCostPrice ? Number(receiveCostPrice) : undefined,
+          batchUnitPrice: receivingItem.trackBatch && receiveBatchUnitPrice ? Number(receiveBatchUnitPrice) : undefined,
           serialNumbers: receivingItem.trackSerial ? trimmedSerials : undefined,
         }),
       });
@@ -420,6 +421,7 @@ export default function InventoryListClient({
       setReceiveBatchNumber("");
       setReceiveExpiryDate("");
       setReceiveCostPrice("");
+      setReceiveBatchUnitPrice("");
       setReceiveSerials([]);
     } catch (err) {
       alert(errorMessage(err, "An error occurred."));
@@ -502,23 +504,11 @@ export default function InventoryListClient({
             </summary>
             
             <div className="p-5 grid grid-cols-1 md:grid-cols-4 gap-5">
-              <div>
-                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Product Type:</label>
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                  className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
-                >
-                  <option value="All">All</option>
-                  <option value="Single">Single</option>
-                  <option value="Variable">Variable</option>
-                  <option value="Combo">Combo</option>
-                </select>
-              </div>
+              
 
               <div>
                 <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Category:</label>
-                <select
+                <select aria-label="Category"
                   value={filterCategory}
                   onChange={(e) => setFilterCategory(e.target.value)}
                   className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
@@ -530,7 +520,7 @@ export default function InventoryListClient({
 
               <div>
                 <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Unit:</label>
-                <select
+                <select aria-label="Unit"
                   value={filterUnit}
                   onChange={(e) => setFilterUnit(e.target.value)}
                   className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
@@ -541,21 +531,11 @@ export default function InventoryListClient({
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Tax:</label>
-                <select
-                  value={filterTax}
-                  onChange={(e) => setFilterTax(e.target.value)}
-                  className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
-                >
-                  <option value="All">All</option>
-                  <option value="None">None</option>
-                </select>
-              </div>
+              
 
               <div>
                 <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Brand:</label>
-                <select
+                <select aria-label="Brand"
                   value={filterBrand}
                   onChange={(e) => setFilterBrand(e.target.value)}
                   className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
@@ -567,7 +547,7 @@ export default function InventoryListClient({
 
               <div>
                 <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Business Location:</label>
-                <select
+                <select aria-label="Business Location"
                   value={filterLocation}
                   onChange={(e) => setFilterLocation(e.target.value)}
                   className="h-9 w-full rounded border border-zinc-300 px-3 text-sm outline-none focus:border-indigo-500 bg-white"
@@ -579,16 +559,7 @@ export default function InventoryListClient({
                 </select>
               </div>
 
-              <div className="flex items-center gap-2.5 pt-6">
-                <input
-                  type="checkbox"
-                  id="nfs"
-                  checked={notForSelling}
-                  onChange={(e) => setNotForSelling(e.target.checked)}
-                  className="h-4.5 w-4.5 rounded border-zinc-300 text-indigo-655 cursor-pointer"
-                />
-                <label htmlFor="nfs" className="text-xs font-bold text-zinc-700 cursor-pointer">Not for selling</label>
-              </div>
+              
             </div>
           </details>
 
@@ -640,17 +611,13 @@ export default function InventoryListClient({
               {/* Middle Export Buttons */}
               <div className="flex flex-wrap gap-1.5">
                 <button onClick={handleExportCSV} className="border border-zinc-300 rounded px-2.5 py-1 text-xs font-bold text-zinc-500 hover:bg-zinc-50 transition flex items-center gap-1">
-                  <FileDown className="h-3 w-3" /> Export CSV
+                  <FileDown className="h-3 w-3" /> Export current page CSV
                 </button>
-                <button onClick={handleExportCSV} className="border border-zinc-300 rounded px-2.5 py-1 text-xs font-bold text-zinc-500 hover:bg-zinc-50 transition flex items-center gap-1">
-                  <FileSpreadsheet className="h-3 w-3" /> Export Excel
-                </button>
+                
                 <button onClick={handlePrintTable} className="border border-zinc-300 rounded px-2.5 py-1 text-xs font-bold text-zinc-500 hover:bg-zinc-50 transition flex items-center gap-1">
                   <Printer className="h-3 w-3" /> Print
                 </button>
-                <button onClick={handleExportCSV} className="border border-zinc-300 rounded px-2.5 py-1 text-xs font-bold text-zinc-500 hover:bg-zinc-50 transition flex items-center gap-1">
-                  <FileDown className="h-3 w-3" /> Export PDF
-                </button>
+                
               </div>
 
               {/* Right Action buttons */}
@@ -710,11 +677,11 @@ export default function InventoryListClient({
                   {filteredItems.length === 0 ? (
                     <tr>
                       <td colSpan={13} className="px-4 py-16 text-center text-zinc-400 font-medium">
-                        No data available in table
+                        <span className="sticky left-1/2 inline-block w-fit -translate-x-1/2">No data available in table</span>
                       </td>
                     </tr>
                   ) : (
-                    filteredItems.slice(0, pageSize).map((item) => {
+                    filteredItems.map((item) => {
                       const isLow = item.qtyOnHand <= item.lowStockThreshold;
                       const purchasePrice = item.purchasePrice || item.unitPrice * 0.8;
                       
@@ -744,13 +711,13 @@ export default function InventoryListClient({
                                 onClick={(e) => e.stopPropagation()}
                                 className="absolute left-4 mt-1 z-30 w-48 bg-white border border-zinc-200 rounded-md shadow-lg py-1.5 text-xs text-zinc-650 flex flex-col font-medium"
                               >
-                                <button onClick={() => setLabelItem(item)} className="px-4 py-1.5 text-left hover:bg-zinc-50 flex items-center gap-2">
+                                <button aria-label="Close dialog" onClick={() => setLabelItem(item)} className="px-4 py-1.5 text-left hover:bg-zinc-50 flex items-center gap-2">
                                   <Tag className="h-3.5 w-3.5 text-zinc-400" /> Label Tags
                                 </button>
                                 <Link href={`/inventory/${item.sku}`} className="px-4 py-1.5 text-left hover:bg-zinc-50 flex items-center gap-2">
                                   <Eye className="h-3.5 w-3.5 text-zinc-400" /> View details
                                 </Link>
-                                <Link href={`/inventory/add-product`} className="px-4 py-1.5 text-left hover:bg-zinc-50 flex items-center gap-2">
+                                <Link href={`/inventory/add-product?sku=${encodeURIComponent(item.sku)}`} className="px-4 py-1.5 text-left hover:bg-zinc-50 flex items-center gap-2">
                                   <Edit className="h-3.5 w-3.5 text-zinc-400" /> Edit Product
                                 </Link>
                                 <button
@@ -812,7 +779,7 @@ export default function InventoryListClient({
                               {item.qtyOnHand} Pieces
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-center"><span className="text-zinc-500 font-bold uppercase text-[11px]">Single</span></td>
+                          <td className="px-4 py-3 text-center"><span className="text-zinc-500 font-bold uppercase text-[12px]">Single</span></td>
                           <td className="px-4 py-3"><span className="text-zinc-650 font-semibold">{item.category || "General"}</span></td>
                           <td className="px-4 py-3"><span className="text-zinc-650 font-semibold">{item.brand || "-"}</span></td>
                           <td className="px-4 py-3"><span className="text-zinc-500">None</span></td>
@@ -830,10 +797,16 @@ export default function InventoryListClient({
       </div>
 
       {/* ────────────────────────────────────────────────────────────────── */}
+      <nav aria-label="Inventory pages" className="flex flex-wrap items-center justify-between gap-3 p-3">
+        <button className="rounded border px-4 py-2" disabled={!page || listLoading} onClick={() => setPage(p => p - 1)}>Previous</button>
+        <p role="status">{listLoading ? 'Loading inventory...' : 'Page ' + (page + 1) + ' - ' + total + ' matching products'}</p>
+        <button className="rounded border px-4 py-2" disabled={(page + 1) * pageSize >= total || listLoading} onClick={() => setPage(p => p + 1)}>Next</button>
+        {listError && <p role="alert">{listError} <button className="underline" onClick={() => setReload(n => n + 1)}>Retry</button></p>}
+      </nav>
       {/* DIALOG MODAL: Edit stock levels */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {editingStockItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fade-in">
+        <Modal open unstyled title="Add Opening Stock" onClose={() => { setEditingStockItem(null); }} className="max-w-6xl" closeDisabled={adjustingStock}>
           <div className="bg-[#f4f6f9] rounded-lg shadow-2xl p-6 border border-zinc-200 max-w-6xl w-full max-h-[90vh] overflow-y-auto space-y-4">
             
             {/* Header bar */}
@@ -985,25 +958,22 @@ export default function InventoryListClient({
                 >
                   {adjustingStock ? "Saving..." : "Save"}
                 </button>
-                <div className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">
-                  Apple Tech POS - v6.7 | Copyright © 2026 All rights reserved.
-                </div>
               </div>
 
             </form>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* DIALOG MODAL: Receive stock (goods in) */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {receivingItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+        <Modal open unstyled title="Receive Stock" onClose={() => { setReceivingItem(null); }} className="max-w-lg" closeDisabled={receivingStock}>
+          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-lg w-full p-5 space-y-4 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="font-bold text-sm text-zinc-800">Receive Stock</h3>
-              <button onClick={() => setReceivingItem(null)} className="text-zinc-400 hover:text-zinc-600">
+              <button aria-label="Close dialog" onClick={() => setReceivingItem(null)} className="text-zinc-400 hover:text-zinc-600">
                 <X className="h-4.5 w-4.5" />
               </button>
             </div>
@@ -1016,7 +986,7 @@ export default function InventoryListClient({
 
               <div>
                 <label className="block text-xs font-bold text-zinc-650 mb-1.5 uppercase">Quantity Received:</label>
-                <input
+                <input aria-label="Quantity Received"
                   type="number"
                   min="1"
                   required
@@ -1038,10 +1008,10 @@ export default function InventoryListClient({
                   stock count from day one. */}
               {receivingItem.trackBatch && (
                 <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
-                  <p className="text-[10px] font-extrabold uppercase text-blue-700">Batch / Lot Tracked</p>
+                  <p className="text-[11px] font-extrabold uppercase text-blue-700">Batch / Lot Tracked</p>
                   <div>
                     <label className="block text-xs font-bold text-zinc-650 mb-1">Batch / Lot No: *</label>
-                    <input
+                    <input aria-label="Batch / Lot No:"
                       type="text"
                       required
                       placeholder="e.g. LOT-2026A"
@@ -1053,7 +1023,7 @@ export default function InventoryListClient({
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-xs font-bold text-zinc-650 mb-1">Expiry Date:</label>
-                      <input
+                      <input aria-label="Expiry Date"
                         type="date"
                         value={receiveExpiryDate}
                         onChange={(e) => setReceiveExpiryDate(e.target.value)}
@@ -1062,7 +1032,7 @@ export default function InventoryListClient({
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-zinc-650 mb-1">Cost Price (Rs):</label>
-                      <input
+                      <input aria-label="Cost Price (Rs)"
                         type="number"
                         step="0.01"
                         value={receiveCostPrice}
@@ -1070,6 +1040,22 @@ export default function InventoryListClient({
                         className="h-8 w-full rounded border border-zinc-300 px-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white"
                       />
                     </div>
+                  </div>
+                  {/* What we paid vs. what this lot sells for — different
+                      batches of the same barcode can genuinely need
+                      different customer-facing prices (an older batch
+                      bought cheaper, a supplier price change mid-stock).
+                      Leave blank to just use the product's normal price. */}
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-650 mb-1">Selling Price for this batch (Rs):</label>
+                    <input aria-label="Selling Price for this batch (Rs)"
+                      type="number"
+                      step="0.01"
+                      placeholder={`Leave blank to use Rs ${receivingItem.unitPrice.toFixed(2)} (catalog price)`}
+                      value={receiveBatchUnitPrice}
+                      onChange={(e) => setReceiveBatchUnitPrice(e.target.value)}
+                      className="h-8 w-full rounded border border-zinc-300 px-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white"
+                    />
                   </div>
                 </div>
               )}
@@ -1080,24 +1066,15 @@ export default function InventoryListClient({
                   rejects any serial that wasn't registered here first. */}
               {receivingItem.trackSerial && (
                 <div className="space-y-2 rounded-lg border border-purple-200 bg-purple-50/50 p-3">
-                  <p className="text-[10px] font-extrabold uppercase text-purple-700">Serial Tracked — one per unit</p>
-                  {Array.from({ length: Math.max(0, parseInt(receiveQty) || 0) }).map((_, i) => (
-                    <input
-                      key={i}
-                      type="text"
-                      required
-                      placeholder={`Serial / IMEI #${i + 1}`}
-                      value={receiveSerials[i] ?? ""}
-                      onChange={(e) => {
-                        const next = [...receiveSerials];
-                        next[i] = e.target.value;
-                        setReceiveSerials(next);
-                      }}
-                      className="h-8 w-full rounded border border-zinc-300 px-2 text-xs font-mono outline-none focus:border-indigo-500 bg-white"
-                    />
-                  ))}
+                  <p className="text-[11px] font-extrabold uppercase text-purple-700">Serial Tracked — one per unit</p>
+                  <label className="block text-sm">Serial numbers (one per line)
+                    <textarea aria-label="Serial numbers, one per line" rows={5} required value={receiveSerials.join('\n')}
+                      onChange={(e) => setReceiveSerials(e.target.value.split('\n'))}
+                      className="mt-2 w-full rounded border p-3 font-mono" />
+                  </label>
+                  <p role="status">{receiveSerials.filter(s => s.trim()).length} serials entered / {receiveQty || 0} units</p>
                   {!receiveQty && (
-                    <p className="text-[11px] text-zinc-450">Enter a quantity above to list serial fields.</p>
+                    <p className="text-[12px] text-zinc-450">Enter a quantity above to list serial fields.</p>
                   )}
                 </div>
               )}
@@ -1120,18 +1097,18 @@ export default function InventoryListClient({
               </div>
             </form>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* DIALOG MODAL: View Stock Audit history */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {historyItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-2xl w-full p-5 space-y-4">
+        <Modal open unstyled title="Stock Adjustment Audit Log" onClose={() => { setHistoryItem(null); }} className="max-w-3xl">
+          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-3xl w-full p-5 space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="font-bold text-sm text-zinc-800">Stock Adjustment Audit Log</h3>
-              <button onClick={() => setHistoryItem(null)} className="text-zinc-400 hover:text-zinc-600">
+              <button aria-label="Close dialog" onClick={() => setHistoryItem(null)} className="text-zinc-400 hover:text-zinc-600">
                 <X className="h-4.5 w-4.5" />
               </button>
             </div>
@@ -1183,7 +1160,7 @@ export default function InventoryListClient({
             </div>
 
             <div className="flex justify-end border-t pt-3">
-              <button
+              <button aria-label="Close dialog"
                 onClick={() => setHistoryItem(null)}
                 className="px-4 py-1.5 bg-indigo-650 hover:bg-indigo-750 text-white rounded text-xs font-bold shadow-sm transition"
               >
@@ -1191,18 +1168,18 @@ export default function InventoryListClient({
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* DIALOG MODAL: Barcode Print labels tags preview */}
       {/* ────────────────────────────────────────────────────────────────── */}
       {labelItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-md w-full p-5 space-y-4">
+        <Modal open unstyled title="Print Product Labels" onClose={() => { setLabelItem(null); }} className="max-w-lg">
+          <div className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-lg w-full p-5 space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="font-bold text-sm text-zinc-800">Print Product Labels</h3>
-              <button onClick={() => setLabelItem(null)} className="text-zinc-400 hover:text-zinc-600">
+              <button aria-label="Close dialog" onClick={() => setLabelItem(null)} className="text-zinc-400 hover:text-zinc-600">
                 <X className="h-4.5 w-4.5" />
               </button>
             </div>
@@ -1215,7 +1192,7 @@ export default function InventoryListClient({
 
               <div>
                 <label className="block text-xs font-bold text-zinc-650 mb-1.5">Number of labels to print:</label>
-                <input
+                <input aria-label="Number of labels to print"
                   type="number"
                   min="1"
                   max="100"
@@ -1237,7 +1214,7 @@ export default function InventoryListClient({
                   ))}
                 </div>
                 
-                <p className="text-[11px] font-mono text-zinc-400 mt-1.5">{labelItem.sku}</p>
+                <p className="text-[12px] font-mono text-zinc-400 mt-1.5">{labelItem.sku}</p>
               </div>
             </div>
 
@@ -1260,7 +1237,7 @@ export default function InventoryListClient({
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </>
   );

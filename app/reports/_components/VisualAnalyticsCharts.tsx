@@ -181,7 +181,7 @@ export function VisualAnalyticsCharts({
           </div>
 
           {/* X Axis Labels */}
-          <div className="flex justify-between text-[11px] font-bold text-zinc-400 px-1 pt-1">
+          <div className="flex justify-between text-[12px] font-bold text-zinc-400 px-1 pt-1">
             {salesTrend.map((pt, i) => (
               <span key={i} className={hoveredTrendPoint?.label === pt.label ? "text-indigo-600 dark:text-indigo-400 font-extrabold" : ""}>
                 {pt.label}
@@ -219,7 +219,7 @@ export function VisualAnalyticsCharts({
               })}
             </svg>
             <div className="absolute flex flex-col items-center justify-center text-center">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase">Categories</span>
+              <span className="text-[11px] font-bold text-zinc-400 uppercase">Categories</span>
               <span className="text-sm font-extrabold text-zinc-900 dark:text-zinc-100">{categoryDistribution.length}</span>
             </div>
           </div>
@@ -236,7 +236,7 @@ export function VisualAnalyticsCharts({
                   </div>
                   <div className="flex items-center gap-3 font-mono">
                     <span className="font-extrabold text-zinc-900 dark:text-zinc-100">Rs {cat.value.toLocaleString()}</span>
-                    <span className="text-[10px] text-zinc-400 font-bold w-10 text-right">{pct}%</span>
+                    <span className="text-[11px] text-zinc-400 font-bold w-10 text-right">{pct}%</span>
                   </div>
                 </div>
               );

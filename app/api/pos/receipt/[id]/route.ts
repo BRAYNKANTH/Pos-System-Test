@@ -11,7 +11,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const [transaction, invoiceSettings, businessSettings, defaultLocation] = await Promise.all([
     prisma.transaction.findUnique({
       where: { id },
-      include: { items: true, cashier: true, bill: true, tenders: true, customer: true },
+      include: { items: { orderBy: { id: "asc" } }, salesReturns: { include: { items: true } }, cashier: true, bill: true, tenders: true, customer: true },
     }),
     prisma.invoiceSettings.findUnique({ where: { id: "default" } }),
     prisma.businessSettings.findUnique({ where: { id: "default" } }),
@@ -58,6 +58,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     billId: transaction.bill?.id ?? null,
     billStatus: transaction.bill?.status ?? null,
     tenders: transaction.tenders.map((t) => ({ method: t.method, amount: Number(t.amount) })),
+    returnedBySku: Object.fromEntries([...new Set(transaction.items.map(i => i.sku))].map(sku => [sku, transaction.salesReturns.flatMap(r => r.items).filter(i => i.sku === sku).reduce((n, i) => n + i.qty, 0)])),
     items: transaction.items.map((item) => ({
       sku: item.sku,
       qty: item.qty,
@@ -66,6 +67,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       taxAmount: Number(item.taxAmount),
       scaleWeight: item.scaleWeight ? Number(item.scaleWeight) : null,
       batchNumber: item.batchNumber,
+      serialNumbers: item.serialNumbers,
     })),
   });
 }

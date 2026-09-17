@@ -84,7 +84,7 @@ export default async function PurchasesPage() {
             <div className="text-xl font-extrabold text-zinc-900 font-mono">
               {currencyFmt(totalSpend)}
             </div>
-            <span className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
+            <span className="text-[12px] text-emerald-600 font-semibold flex items-center gap-1">
               <TrendingUp className="h-3 w-3" /> Across {purchases.length} received orders
             </span>
           </div>
@@ -100,7 +100,7 @@ export default async function PurchasesPage() {
             <div className="text-2xl font-extrabold text-zinc-900">
               {purchases.length} <span className="text-xs font-normal text-zinc-400">POs</span>
             </div>
-            <span className="text-[11px] text-zinc-500 font-medium flex items-center gap-1">
+            <span className="text-[12px] text-zinc-500 font-medium flex items-center gap-1">
               <Layers className="h-3 w-3 text-indigo-500" /> {totalItemsCount} units added to stock
             </span>
           </div>
@@ -116,7 +116,7 @@ export default async function PurchasesPage() {
             <div className="text-xl font-extrabold text-zinc-900 font-mono">
               {currencyFmt(avgOrderValue)}
             </div>
-            <span className="text-[11px] text-zinc-500 font-medium">Per completed purchase</span>
+            <span className="text-[12px] text-zinc-500 font-medium">Per completed purchase</span>
           </div>
           <div className="h-12 w-12 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shrink-0">
             <TrendingUp className="h-6 w-6" />
@@ -130,7 +130,7 @@ export default async function PurchasesPage() {
             <div className="text-2xl font-extrabold text-zinc-900">
               {uniqueSuppliers} <span className="text-xs font-normal text-zinc-400">Vendors</span>
             </div>
-            <span className="text-[11px] text-zinc-500 font-medium flex items-center gap-1">
+            <span className="text-[12px] text-zinc-500 font-medium flex items-center gap-1">
               <Truck className="h-3 w-3 text-amber-500" /> Active vendor partners
             </span>
           </div>
@@ -168,7 +168,7 @@ export default async function PurchasesPage() {
               {purchases.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-4 py-12 text-center text-zinc-400">
-                    <div className="flex flex-col items-center justify-center gap-2">
+                    <div className="sticky left-1/2 w-fit -translate-x-1/2 flex flex-col items-center justify-center gap-2">
                       <ShoppingBag className="h-8 w-8 text-zinc-300" />
                       <p className="font-semibold text-zinc-600">No purchases recorded yet</p>
                       <p className="text-xs text-zinc-400">
