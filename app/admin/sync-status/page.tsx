@@ -6,6 +6,7 @@ import { checkPermission, PERMISSIONS } from "@/lib/auth/rbac";
 import { redirect } from "next/navigation";
 import { RetryFailedButton } from "./RetryFailedButton";
 import { PullPaymentsButton } from "./PullPaymentsButton";
+import { PullProductsButton } from "./PullProductsButton";
 
 export default async function SyncStatusPage() {
   const user = await getCurrentUser();
@@ -124,6 +125,24 @@ export default async function SyncStatusPage() {
            </div>
           </div>
         )}
+      </div>
+
+      {/* ── Product catalog (Zoho → POS) ─────────────────────────────────
+          The one-time/on-demand full pull below is separate from ongoing
+          real-time updates — those come from a Zoho Books workflow-rule
+          webhook (POST /api/webhooks/zoho/items) firing on item
+          create/edit, set up by hand in Zoho's own UI. This button is
+          for the initial backfill, or re-syncing on demand later. */}
+      <div className="rounded-md border border-zinc-200 dark:border-zinc-800 p-4 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">Product Catalog</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Zoho Books is the source of truth for the catalog (name, price, category, brand) — new items you add
+            in Zoho appear here automatically within moments via a webhook. Use this button for the initial
+            import, or to re-sync on demand.
+          </p>
+        </div>
+        <PullProductsButton />
       </div>
 
       <div className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">

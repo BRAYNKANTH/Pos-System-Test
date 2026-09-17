@@ -533,3 +533,130 @@ export async function pullInvoicePayments(actorId?: string) {
 
   return result;
 }
+
+/** Shared shape both the one-time catalog pull and the real-time item
+ * webhook map onto an `InventoryItem` upsert. Only catalog/pricing
+ * fields — `qtyOnHand` is deliberately left alone here (except on
+ * first-ever create, where it starts at 0). The POS is the source of
+ * truth for physical stock (sales deduct it, goods receipts add it);
+ * letting Zoho's own stock figure overwrite it on every edit would fight
+ * with that instead of reflecting what's actually on the shelf. */
+type ZohoItemFields = {
+  item_id: string;
+  sku: string;
+  name: string;
+  rate?: string | number;
+  purchase_rate?: string | number;
+  category_name?: string | null;
+  brand?: string | null;
+};
+
+function catalogFieldsFromZohoItem(item: ZohoItemFields) {
+  return {
+    name: item.name,
+    unitPrice: Number(item.rate ?? 0),
+    purchasePrice: Number(item.purchase_rate ?? 0),
+    category: item.category_name || null,
+    brand: item.brand || null,
+    zohoItemId: item.item_id,
+  };
+}
+
+/** upsertProductFromZoho — used by both the webhook (one item at a time,
+ * real-time) and pullAllProductsFromZoho (one page at a time, backfill).
+ * Matches on `zohoItemId` first (set by a prior sync), falling back to
+ * `sku` for an item Zoho has always owned but the POS is seeing for the
+ * first time. */
+async function upsertProductFromZoho(item: ZohoItemFields) {
+  if (!item.sku) throw new Error(`Zoho item ${item.item_id} has no SKU — skipped`);
+
+  const existing = await prisma.inventoryItem.findFirst({
+    where: { OR: [{ zohoItemId: item.item_id }, { sku: item.sku }] },
+  });
+
+  const fields = catalogFieldsFromZohoItem(item);
+  if (existing) {
+    await prisma.inventoryItem.update({ where: { id: existing.id }, data: fields });
+    return "updated" as const;
+  }
+  await prisma.inventoryItem.create({ data: { sku: item.sku, qtyOnHand: 0, ...fields } });
+  return "created" as const;
+}
+
+/** pullAllProductsFromZoho — the one-time/on-demand "Import Products
+ * from Zoho" button on /admin/sync-status. Fetches the full Zoho Books
+ * item catalog (read-only `GET /items`, never writes anything back to
+ * Zoho) and reconciles the local catalog to match it: every returned
+ * item is upserted via upsertProductFromZoho, and any local product NOT
+ * present in that set gets deleted — Zoho is treated as the sole source
+ * of truth for the catalog. A product delete can fail on a foreign-key
+ * constraint (it's been purchased, stocked, or adjusted before); that's
+ * surfaced per-item in `result.errors` rather than aborting the whole
+ * run. */
+export async function pullAllProductsFromZoho(actorId?: string) {
+  const connection = await getValidConnection();
+
+  const result = { created: 0, updated: 0, removed: 0, errors: [] as { item: string; message: string }[] };
+  const seenZohoIds = new Set<string>();
+
+  let page = 1;
+  for (;;) {
+    const body = await zohoFetch(connection, "/items", {}, { page: String(page), per_page: "200" });
+    const items: ZohoItemFields[] = body.items ?? [];
+    for (const item of items) {
+      seenZohoIds.add(item.item_id);
+      try {
+        const outcome = await upsertProductFromZoho(item);
+        result[outcome]++;
+      } catch (err) {
+        result.errors.push({ item: item.sku || item.item_id, message: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    if (!body.page_context?.has_more_page) break;
+    page++;
+  }
+
+  const localOnly = await prisma.inventoryItem.findMany({
+    where: { zohoItemId: { notIn: Array.from(seenZohoIds) } },
+    select: { id: true, sku: true, zohoItemId: true },
+  });
+  for (const product of localOnly) {
+    // Never seen an item_id from Zoho for this product yet (zohoItemId
+    // still null from before any sync ran) isn't the same claim as
+    // "Zoho doesn't have this SKU" — skip those rather than risk
+    // deleting something Zoho actually does own under a sku we haven't
+    // linked yet.
+    if (!product.zohoItemId) continue;
+    try {
+      await prisma.inventoryItem.delete({ where: { id: product.id } });
+      result.removed++;
+    } catch (err) {
+      result.errors.push({ item: product.sku, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  if (actorId) {
+    await writeAuditLog({
+      entityType: "product_catalog_pull",
+      entityId: "zoho",
+      newValue: result,
+      actorId,
+      reason: "Full product catalog imported from Zoho Books",
+    });
+  }
+
+  return result;
+}
+
+/** handleZohoItemWebhook — the real-time counterpart to
+ * pullAllProductsFromZoho: Zoho Books workflow rules call this
+ * (POST /api/webhooks/zoho/items) on item create/edit so a single
+ * change shows up in the POS immediately instead of waiting for the
+ * next manual pull. Deliberately never deletes — an item removed in
+ * Zoho stays in the POS until someone runs the full pull (or removes it
+ * by hand), the same FK-safety reasoning as pullAllProductsFromZoho's
+ * delete step, but there's no per-item "delete" trigger to react to
+ * here even if that were desired. */
+export async function handleZohoItemWebhook(item: ZohoItemFields) {
+  return upsertProductFromZoho(item);
+}
